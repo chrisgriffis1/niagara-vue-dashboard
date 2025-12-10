@@ -46,7 +46,7 @@
       :initial-equipment="selectedEquipment"
       :initial-point="selectedPoint"
       :initial-alarm="selectedAlarm"
-      :available-equipment="deviceStore.equipment"
+      :available-equipment="deviceStore.devices"
       @close="closeTrendingPanel"
     />
 
@@ -100,7 +100,7 @@ const refreshData = async () => {
 
 const handlePointClick = async (point) => {
   // Find the equipment for this point
-  const equipment = deviceStore.equipment.find(e => {
+  const equipment = deviceStore.devices.find(e => {
     const points = deviceStore.devicePoints[e.id] || []
     return points.some(p => p.id === point.id)
   })
