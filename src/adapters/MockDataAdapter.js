@@ -69,14 +69,7 @@ class MockDataAdapter {
       
       this.equipmentPointsMap.set(equip.id, equipPoints);
       pointIndex += pointCount;
-      
-      // Debug logging for first few equipment
-      if (equipIndex < 3) {
-        console.log(`Equipment ${equip.id} (${equip.name}): ${equipPoints.length} points assigned`)
-      }
     });
-    
-    console.log(`✓ Mapped ${this.points.length} points across ${this.equipment.length} equipment`)
   }
 
   /**

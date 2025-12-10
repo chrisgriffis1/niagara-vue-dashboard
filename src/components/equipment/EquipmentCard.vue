@@ -117,9 +117,7 @@ const togglePoints = async () => {
 const loadPoints = async () => {
   loading.value = true
   try {
-    console.log(`Loading points for equipment: ${props.equipment.id} (${props.equipment.name})`)
     points.value = await deviceStore.loadDevicePoints(props.equipment.id)
-    console.log(`Loaded ${points.value.length} points:`, points.value)
   } catch (error) {
     console.error('Failed to load points:', error)
   } finally {

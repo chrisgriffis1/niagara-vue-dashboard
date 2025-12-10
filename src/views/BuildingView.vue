@@ -65,8 +65,6 @@ const refreshData = async () => {
 }
 
 const handlePointClick = async (point) => {
-  console.log('Point clicked:', point)
-  
   // Load historical data for the clicked point
   const history = await deviceStore.getPointHistory(point.id)
   
