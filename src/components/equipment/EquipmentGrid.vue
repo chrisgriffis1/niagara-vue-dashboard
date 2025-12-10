@@ -68,7 +68,7 @@
 
       <!-- Alarm Filter -->
       <div class="filter-group">
-        <label>Alarm Status</label>
+        <label>Alarm & Status</label>
         <div class="filter-chips">
           <button
             :class="['chip', { active: selectedAlarmFilter === null || selectedAlarmFilter === 'all' }]"
@@ -103,6 +103,72 @@
           >
             ℹ Medium ({{ getAlarmCount('medium') }})
           </button>
+          <button
+            v-if="getAlarmCount('warning') > 0"
+            :class="['chip alarm-chip warning', { active: selectedAlarmFilter === 'warning' }]"
+            @click="selectedAlarmFilter = 'warning'"
+          >
+            ⚠ Warning ({{ getAlarmCount('warning') }})
+          </button>
+        </div>
+      </div>
+
+      <!-- Advanced Filters (Collapsible) -->
+      <div class="filter-group advanced-filters">
+        <button 
+          @click="showAdvancedFilters = !showAdvancedFilters"
+          class="advanced-toggle"
+        >
+          {{ showAdvancedFilters ? '▼' : '▶' }} Advanced Filters
+          <span v-if="selectedStatusFilter" class="active-indicator">•</span>
+        </button>
+        
+        <div v-if="showAdvancedFilters" class="advanced-content">
+          <!-- Communication Status -->
+          <div class="sub-filter-group">
+            <label>Communication Status</label>
+            <div class="filter-chips">
+              <button
+                :class="['chip', { active: selectedStatusFilter === null }]"
+                @click="selectedStatusFilter = null"
+              >
+                All
+              </button>
+              <button
+                :class="['chip status-chip', { active: selectedStatusFilter === 'online' }]"
+                @click="selectedStatusFilter = 'online'"
+              >
+                📡 Online ({{ getStatusCount('online') }})
+              </button>
+              <button
+                :class="['chip status-chip', { active: selectedStatusFilter === 'offline' }]"
+                @click="selectedStatusFilter = 'offline'"
+                disabled
+                title="No offline equipment (coming soon)"
+              >
+                📴 Offline (0)
+              </button>
+              <button
+                :class="['chip status-chip', { active: selectedStatusFilter === 'stale' }]"
+                @click="selectedStatusFilter = 'stale'"
+                disabled
+                title="Stale data detection (coming soon)"
+              >
+                ⏱ Stale Data (0)
+              </button>
+            </div>
+          </div>
+
+          <!-- Future Filters Placeholder -->
+          <div class="coming-soon">
+            <p>🔜 Coming Soon:</p>
+            <ul>
+              <li>Override Status (manual overrides)</li>
+              <li>Operating Mode (cooling/heating/off)</li>
+              <li>Occupancy Status (occupied/unoccupied)</li>
+              <li>Running Status (on/off)</li>
+            </ul>
+          </div>
         </div>
       </div>
 
@@ -158,9 +224,11 @@ const emit = defineEmits(['point-clicked'])
 
 const loading = ref(false)
 const showFilter = ref(false)
+const showAdvancedFilters = ref(false)
 const selectedType = ref(null)
 const selectedLocation = ref(null)
-const selectedAlarmFilter = ref(null) // 'all', 'with-alarms', 'critical', 'high', 'medium', 'low'
+const selectedAlarmFilter = ref(null) // 'all', 'with-alarms', 'critical', 'high', 'medium', 'low', 'warning'
+const selectedStatusFilter = ref(null) // 'all', 'online', 'offline', 'stale'
 
 // Get equipment list from store
 const equipmentList = computed(() => deviceStore.allDevices)
@@ -188,7 +256,7 @@ const getEquipmentByAlarmPriority = (priority) => {
   return new Set(alarms.map(a => a.equipmentId))
 }
 
-// Filter equipment by type, location, and alarm status
+// Filter equipment by type, location, alarm status, and communication status
 const filteredEquipment = computed(() => {
   let filtered = equipmentList.value
 
@@ -206,10 +274,32 @@ const filteredEquipment = computed(() => {
   if (selectedAlarmFilter.value && selectedAlarmFilter.value !== 'all') {
     if (selectedAlarmFilter.value === 'with-alarms') {
       filtered = filtered.filter(e => equipmentWithAlarms.value.has(e.id))
+    } else if (selectedAlarmFilter.value === 'warning') {
+      // Show equipment with warning status (no critical/high/medium alarms)
+      filtered = filtered.filter(e => {
+        const hasAlarm = equipmentWithAlarms.value.has(e.id)
+        if (hasAlarm) {
+          const alarms = alarmStore.activeAlarms.filter(a => a.equipmentId === e.id)
+          const priorities = alarms.map(a => a.priority)
+          return !priorities.includes('critical') && 
+                 !priorities.includes('high') && 
+                 !priorities.includes('medium')
+        }
+        return e.status === 'warning'
+      })
     } else {
       // Filter by specific alarm priority
       const priorityEquipment = getEquipmentByAlarmPriority(selectedAlarmFilter.value)
       filtered = filtered.filter(e => priorityEquipment.has(e.id))
+    }
+  }
+
+  // Filter by communication status
+  if (selectedStatusFilter.value && selectedStatusFilter.value !== 'all') {
+    // For now, all equipment is online (mock data)
+    // In real implementation, check actual status
+    if (selectedStatusFilter.value === 'online') {
+      filtered = filtered.filter(e => e.status !== 'offline')
     }
   }
 
@@ -231,7 +321,30 @@ const getAlarmCount = (filter) => {
   if (filter === 'with-alarms') {
     return equipmentWithAlarms.value.size
   }
+  if (filter === 'warning') {
+    // Count equipment with warning status or low priority alarms
+    return equipmentList.value.filter(e => {
+      const hasAlarm = equipmentWithAlarms.value.has(e.id)
+      if (hasAlarm) {
+        const alarms = alarmStore.activeAlarms.filter(a => a.equipmentId === e.id)
+        const priorities = alarms.map(a => a.priority)
+        return !priorities.includes('critical') && 
+               !priorities.includes('high') && 
+               !priorities.includes('medium')
+      }
+      return e.status === 'warning'
+    }).length
+  }
   return getEquipmentByAlarmPriority(filter).size
+}
+
+// Get count for status filter
+const getStatusCount = (status) => {
+  if (status === 'online') {
+    return equipmentList.value.filter(e => e.status !== 'offline').length
+  }
+  // Extend for offline, stale when real data available
+  return 0
 }
 
 // Clear all filters
@@ -239,11 +352,15 @@ const clearFilters = () => {
   selectedType.value = null
   selectedLocation.value = null
   selectedAlarmFilter.value = null
+  selectedStatusFilter.value = null
 }
 
 // Check if any filters are active
 const hasActiveFilters = computed(() => {
-  return selectedType.value || selectedLocation.value || selectedAlarmFilter.value
+  return selectedType.value || 
+         selectedLocation.value || 
+         selectedAlarmFilter.value ||
+         selectedStatusFilter.value
 })
 
 // Toggle filter visibility
@@ -396,6 +513,98 @@ onMounted(async () => {
 .alarm-chip.medium.active {
   background-color: var(--color-info);
   color: white;
+}
+
+.alarm-chip.warning {
+  border-color: var(--color-warning);
+}
+
+.alarm-chip.warning.active {
+  background-color: var(--color-warning);
+  color: var(--color-bg-primary);
+}
+
+/* Advanced Filters */
+.advanced-filters {
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--spacing-md);
+  margin-top: var(--spacing-md);
+}
+
+.advanced-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm);
+  background: transparent;
+  border: none;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: color var(--transition-fast);
+  min-height: unset;
+  text-align: left;
+}
+
+.advanced-toggle:hover {
+  color: var(--color-text-primary);
+}
+
+.active-indicator {
+  color: var(--color-accent-primary);
+  font-size: var(--font-size-xl);
+  line-height: 0;
+}
+
+.advanced-content {
+  margin-top: var(--spacing-md);
+  padding-left: var(--spacing-md);
+  border-left: 2px solid var(--color-border);
+}
+
+.sub-filter-group {
+  margin-bottom: var(--spacing-md);
+}
+
+.sub-filter-group label {
+  font-size: var(--font-size-xs);
+  margin-bottom: var(--spacing-xs);
+}
+
+.status-chip {
+  font-size: var(--font-size-xs);
+}
+
+.chip:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.coming-soon {
+  margin-top: var(--spacing-lg);
+  padding: var(--spacing-md);
+  background-color: rgba(59, 130, 246, 0.05);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.coming-soon p {
+  margin: 0 0 var(--spacing-sm) 0;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-secondary);
+}
+
+.coming-soon ul {
+  margin: 0;
+  padding-left: var(--spacing-lg);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  line-height: 1.6;
 }
 
 /* Filter Actions */
