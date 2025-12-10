@@ -284,11 +284,27 @@ onMounted(async () => {
   
   // Setup keyboard shortcuts
   document.addEventListener('keydown', handleKeyPress)
+  
+  // Auto-maximize on mobile landscape
+  checkOrientation()
+  window.addEventListener('resize', checkOrientation)
 })
 
 onUnmounted(() => {
   document.removeEventListener('keydown', handleKeyPress)
+  window.removeEventListener('resize', checkOrientation)
 })
+
+const checkOrientation = () => {
+  // Auto-maximize on mobile landscape
+  if (window.innerWidth <= 768 && window.innerWidth > window.innerHeight) {
+    // Landscape mode on mobile
+    isFullScreen.value = true
+  } else if (isFullScreen.value && window.innerWidth <= 768 && window.innerHeight > window.innerWidth) {
+    // Portrait mode - exit full screen
+    isFullScreen.value = false
+  }
+}
 
 const loadAllEquipmentPoints = async () => {
   for (const equipment of props.availableEquipment) {
