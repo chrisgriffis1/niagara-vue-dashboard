@@ -527,18 +527,18 @@ watch([selectedPoints, timeRange], async () => {
   gap: var(--spacing-md);
   border-bottom: 1px solid var(--color-border);
   overflow-y: auto;
-  max-height: 50vh;
-  animation: slideDown 0.2s ease;
+  max-height: 60vh;
+  animation: slideDown 0.3s ease;
 }
 
 @keyframes slideDown {
   from {
     opacity: 0;
-    max-height: 0;
+    transform: translateY(-10px);
   }
   to {
     opacity: 1;
-    max-height: 50vh;
+    transform: translateY(0);
   }
 }
 

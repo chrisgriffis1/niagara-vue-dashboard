@@ -124,9 +124,9 @@ let chartInstance = null
 const formatTimestamp = (timestamp) => {
   const date = new Date(timestamp)
   return date.toLocaleTimeString('en-US', { 
-    hour: '2-digit', 
+    hour: 'numeric', 
     minute: '2-digit',
-    hour12: false 
+    hour12: true  // 12-hour format with AM/PM
   })
 }
 
