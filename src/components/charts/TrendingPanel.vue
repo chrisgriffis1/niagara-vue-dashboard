@@ -1,14 +1,14 @@
 <template>
   <div class="trending-panel-overlay" @click.self="handleClose">
-    <div class="trending-panel">
-      <!-- Header -->
-      <div class="panel-header">
+    <div class="trending-panel" :class="{ 'full-screen-mode': isFullScreen }">
+      <!-- Header (Hidden in full screen) -->
+      <div v-if="!isFullScreen" class="panel-header">
         <h3>📈 Advanced Trending</h3>
         <button @click="handleClose" class="close-btn" title="Close (Esc)">✕</button>
       </div>
 
-      <!-- Quick Controls Bar (Always Visible) -->
-      <div class="quick-controls">
+      <!-- Quick Controls Bar (Hidden in full screen) -->
+      <div v-if="!isFullScreen" class="quick-controls">
         <!-- Selected Points Chips -->
         <div v-if="selectedPoints.length > 0" class="selected-points-compact">
           <div 
@@ -46,7 +46,7 @@
       </div>
 
       <!-- Advanced Settings (Collapsible) -->
-      <div v-if="showAdvancedSettings" class="config-section">
+      <div v-if="showAdvancedSettings && !isFullScreen" class="config-section">
         <!-- Time Range Selector -->
         <TimeRangeSelector 
           v-model="timeRange"
@@ -75,7 +75,7 @@
       </div>
 
       <!-- View Toggle -->
-      <div class="view-toggle">
+      <div v-if="!isFullScreen" class="view-toggle">
         <button 
           :class="['toggle-btn', { active: viewMode === 'chart' }]"
           @click="viewMode = 'chart'"
@@ -88,10 +88,23 @@
         >
           📋 Table View
         </button>
+        <button 
+          v-if="viewMode === 'chart' && hasData"
+          @click="isFullScreen = true"
+          class="toggle-btn maximize-btn"
+          title="Maximize chart for better visibility"
+        >
+          ⛶ Maximize
+        </button>
       </div>
 
       <!-- Display Section -->
-      <div class="display-section">
+      <div class="display-section" :class="{ 'full-screen-display': isFullScreen }">
+        <!-- Full Screen Exit Button -->
+        <button v-if="isFullScreen" @click="isFullScreen = false" class="exit-fullscreen-btn" title="Exit Full Screen (Esc)">
+          ↙ Exit Full Screen
+        </button>
+
         <!-- Chart View -->
         <div v-if="viewMode === 'chart' && hasData" class="chart-container">
           <PointChart
@@ -128,7 +141,7 @@
       </div>
 
       <!-- Action Bar -->
-      <div class="action-bar">
+      <div v-if="!isFullScreen" class="action-bar">
         <button @click="refreshData" class="action-btn" :disabled="selectedPoints.length === 0">
           🔄 Refresh
         </button>
@@ -190,6 +203,7 @@ const historicalData = ref({})
 const equipmentPoints = ref({})
 const loading = ref(false)
 const showAdvancedSettings = ref(false) // Collapsed by default
+const isFullScreen = ref(false) // Focus mode for chart
 
 const currentEquipment = computed(() => props.initialEquipment)
 
@@ -363,7 +377,13 @@ const handleClose = () => {
 
 const handleKeyPress = (e) => {
   if (e.key === 'Escape') {
-    handleClose()
+    if (isFullScreen.value) {
+      // Exit full screen first
+      isFullScreen.value = false
+    } else {
+      // Close panel
+      handleClose()
+    }
   }
 }
 
@@ -567,6 +587,57 @@ watch([selectedPoints, timeRange], async () => {
   background-color: var(--color-accent-primary);
   border-color: var(--color-accent-primary);
   color: white;
+}
+
+.maximize-btn {
+  background-color: rgba(139, 92, 246, 0.1);
+  border-color: rgba(139, 92, 246, 0.5);
+  color: rgba(139, 92, 246, 1);
+}
+
+.maximize-btn:hover {
+  background-color: rgba(139, 92, 246, 1);
+  border-color: rgba(139, 92, 246, 1);
+  color: white;
+}
+
+/* Full Screen Mode */
+.trending-panel.full-screen-mode {
+  max-height: 100vh;
+  height: 100vh;
+}
+
+.display-section.full-screen-display {
+  padding: 0;
+  min-height: 100vh;
+}
+
+.full-screen-display .chart-container {
+  min-height: 100vh;
+  height: 100vh;
+}
+
+.exit-fullscreen-btn {
+  position: fixed;
+  top: var(--spacing-lg);
+  right: var(--spacing-lg);
+  z-index: 1001;
+  padding: var(--spacing-sm) var(--spacing-lg);
+  background-color: rgba(0, 0, 0, 0.8);
+  border: 2px solid var(--color-accent-primary);
+  color: white;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  min-height: unset;
+  backdrop-filter: blur(10px);
+}
+
+.exit-fullscreen-btn:hover {
+  background-color: var(--color-accent-primary);
+  transform: scale(1.05);
 }
 
 /* Display Section */
