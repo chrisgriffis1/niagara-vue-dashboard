@@ -253,23 +253,19 @@ const handleEquipmentClick = (equipmentId) => {
 
 .alarm-count.critical {
   background-color: var(--color-error);
-  box-shadow: 0 0 12px rgba(239, 68, 68, 0.5);
-  animation: pulse 2s infinite;
+  box-shadow: 0 0 20px rgba(239, 68, 68, 0.6);
+  animation: pulseCritical 1.5s ease-in-out infinite;
 }
 
-.alarm-count.warning {
-  background-color: var(--color-warning);
-  color: var(--color-bg-primary);
-}
-
-.alarm-count.ok {
-  background-color: var(--color-success);
-  color: var(--color-bg-primary);
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.7; }
+@keyframes pulseCritical {
+  0%, 100% { 
+    transform: scale(1);
+    box-shadow: 0 0 20px rgba(239, 68, 68, 0.6);
+  }
+  50% { 
+    transform: scale(1.1);
+    box-shadow: 0 0 30px rgba(239, 68, 68, 0.9);
+  }
 }
 
 /* Alarm Stats */
@@ -346,6 +342,18 @@ const handleEquipmentClick = (equipmentId) => {
 .alarm-item.priority-critical {
   border-left-color: var(--color-error);
   background-color: rgba(239, 68, 68, 0.05);
+  animation: pulseAlarmCard 2s ease-in-out infinite;
+}
+
+@keyframes pulseAlarmCard {
+  0%, 100% {
+    border-left-width: 4px;
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+  }
+  50% {
+    border-left-width: 6px;
+    box-shadow: -4px 0 12px rgba(239, 68, 68, 0.4);
+  }
 }
 
 .alarm-item.priority-high {
