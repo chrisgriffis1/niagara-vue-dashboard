@@ -50,10 +50,16 @@
           v-for="point in points" 
           :key="point.id"
           class="point-item"
+          :class="{ 'has-alarm': getPointAlarm(point) }"
           @click="handlePointClick(point)"
         >
           <div class="point-info">
-            <span class="point-name">{{ point.name }}</span>
+            <div class="point-name-row">
+              <span class="point-name">{{ point.name }}</span>
+              <span v-if="getPointAlarm(point)" class="alarm-badge" :class="`alarm-${getPointAlarm(point).priority}`">
+                {{ getAlarmIcon(getPointAlarm(point).priority) }}
+              </span>
+            </div>
             <span class="point-type">{{ point.type }}</span>
           </div>
           <div class="point-value">
@@ -78,6 +84,7 @@
 
 import { ref, computed, watch } from 'vue'
 import { useDeviceStore } from '../../stores/deviceStore'
+import { useAlarmStore } from '../../stores/alarmStore'
 
 const props = defineProps({
   equipment: {
@@ -93,9 +100,27 @@ const props = defineProps({
 const emit = defineEmits(['point-clicked', 'equipment-clicked'])
 
 const deviceStore = useDeviceStore()
+const alarmStore = useAlarmStore()
 const pointsExpanded = ref(false)
 const loading = ref(false)
 const points = ref([])
+
+// Get alarms for this equipment
+const equipmentAlarms = computed(() => {
+  return alarmStore.activeAlarms.filter(alarm => alarm.equipmentId === props.equipment.id)
+})
+
+// Check if a point has an alarm
+const getPointAlarm = (point) => {
+  // Check if point name/type matches alarm message
+  return equipmentAlarms.value.find(alarm => {
+    const lowerMessage = alarm.message.toLowerCase()
+    const lowerPointName = point.name.toLowerCase()
+    const lowerPointType = point.type.toLowerCase()
+    return lowerMessage.includes(lowerPointName) || 
+           lowerMessage.includes(lowerPointType)
+  })
+}
 
 // Status indicator color based on equipment status
 const statusClass = computed(() => {
@@ -135,6 +160,16 @@ const handlePointClick = (point) => {
     equipmentName: props.equipment.name,
     equipmentId: props.equipment.id
   })
+}
+
+// Get alarm icon
+const getAlarmIcon = (priority) => {
+  switch (priority) {
+    case 'critical': return '⚠'
+    case 'high': return '⚡'
+    case 'medium': return 'ℹ'
+    default: return '•'
+  }
 }
 
 // Watch equipment changes
@@ -329,10 +364,65 @@ watch(() => props.equipment.id, () => {
   flex: 1;
 }
 
+.point-name-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
 .point-name {
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
   color: var(--color-text-primary);
+}
+
+.alarm-badge {
+  font-size: var(--font-size-xs);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-weight: var(--font-weight-bold);
+  line-height: 1;
+}
+
+.alarm-badge.alarm-critical {
+  background-color: var(--color-error);
+  color: white;
+  animation: pulseAlarmBadge 1.5s ease-in-out infinite;
+}
+
+.alarm-badge.alarm-high {
+  background-color: var(--color-warning);
+  color: var(--color-bg-primary);
+}
+
+.alarm-badge.alarm-medium {
+  background-color: var(--color-info);
+  color: white;
+}
+
+.alarm-badge.alarm-low {
+  background-color: var(--color-text-tertiary);
+  color: white;
+}
+
+@keyframes pulseAlarmBadge {
+  0%, 100% { 
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% { 
+    opacity: 0.8;
+    transform: scale(1.05);
+  }
+}
+
+.point-item.has-alarm {
+  border-left: 3px solid var(--color-error);
+  background-color: rgba(239, 68, 68, 0.05);
+}
+
+.point-item.has-alarm:hover {
+  background-color: rgba(239, 68, 68, 0.1);
 }
 
 .point-type {
