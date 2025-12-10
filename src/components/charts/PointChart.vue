@@ -478,6 +478,7 @@ body:has(.chart-overlay) {
 
 .chart-container-embedded {
   height: 450px;
+  width: 100%;
   position: relative;
   background-color: var(--color-bg-secondary);
   border-radius: var(--radius-md);

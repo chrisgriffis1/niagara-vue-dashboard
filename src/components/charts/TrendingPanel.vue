@@ -45,34 +45,49 @@
         </div>
       </div>
 
-      <!-- Advanced Settings (Collapsible) -->
-      <div v-if="showAdvancedSettings && !isFullScreen" class="config-section">
-        <!-- Time Range Selector -->
-        <TimeRangeSelector 
-          v-model="timeRange"
-          :alarm-timestamp="initialAlarm?.timestamp"
-          @range-changed="handleTimeRangeChange"
-        />
+      <!-- Advanced Settings (Side Drawer) -->
+      <transition name="drawer">
+        <div v-if="showAdvancedSettings && !isFullScreen" class="settings-drawer">
+          <div class="drawer-header">
+            <h4>⚙️ Advanced Settings</h4>
+            <button @click="showAdvancedSettings = false" class="drawer-close-btn">✕</button>
+          </div>
+          <div class="drawer-content">
+            <!-- Time Range Selector -->
+            <TimeRangeSelector 
+              v-model="timeRange"
+              :alarm-timestamp="initialAlarm?.timestamp"
+              @range-changed="handleTimeRangeChange"
+            />
 
-        <!-- Point Selector -->
-        <PointSelector
-          v-model="selectedPoints"
-          :available-equipment="availableEquipment"
-          :current-equipment="currentEquipment"
-          :equipment-points="equipmentPoints"
-          @points-changed="handlePointsChange"
-        />
+            <!-- Point Selector -->
+            <PointSelector
+              v-model="selectedPoints"
+              :available-equipment="availableEquipment"
+              :current-equipment="currentEquipment"
+              :equipment-points="equipmentPoints"
+              @points-changed="handlePointsChange"
+            />
 
-        <!-- Smart Suggestions -->
-        <SmartSuggestions
-          v-if="currentEquipment"
-          :equipment="currentEquipment"
-          :has-alarm="!!initialAlarm"
-          :selected-points="selectedPoints"
-          :available-points="currentEquipmentPoints"
-          @add-point="handleSuggestionAdd"
-        />
-      </div>
+            <!-- Smart Suggestions -->
+            <SmartSuggestions
+              v-if="currentEquipment"
+              :equipment="currentEquipment"
+              :has-alarm="!!initialAlarm"
+              :selected-points="selectedPoints"
+              :available-points="currentEquipmentPoints"
+              @add-point="handleSuggestionAdd"
+            />
+          </div>
+        </div>
+      </transition>
+
+      <!-- Drawer Backdrop -->
+      <div 
+        v-if="showAdvancedSettings && !isFullScreen" 
+        class="drawer-backdrop"
+        @click="showAdvancedSettings = false"
+      ></div>
 
       <!-- View Toggle -->
       <div v-if="!isFullScreen" class="view-toggle">
@@ -539,27 +554,90 @@ watch([selectedPoints, timeRange], async () => {
   border-color: var(--color-accent-primary);
 }
 
-/* Configuration Section (Collapsible) */
-.config-section {
+/* Configuration Section (Collapsible) - REPLACED WITH DRAWER */
+/* Side Drawer for Advanced Settings */
+.settings-drawer {
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 450px;
+  max-width: 90vw;
+  background-color: var(--color-bg-card);
+  border-right: 1px solid var(--color-border);
+  z-index: 1002;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 4px 0 20px rgba(0, 0, 0, 0.5);
+}
+
+.drawer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-lg);
+  border-bottom: 1px solid var(--color-border);
+  background-color: var(--color-bg-secondary);
+}
+
+.drawer-header h4 {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  color: var(--color-text-primary);
+}
+
+.drawer-close-btn {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  min-height: unset;
+  font-size: var(--font-size-lg);
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast);
+}
+
+.drawer-close-btn:hover {
+  background-color: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.drawer-content {
+  flex: 1;
+  overflow-y: auto;
   padding: var(--spacing-lg);
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-md);
-  border-bottom: 1px solid var(--color-border);
-  overflow-y: auto;
-  max-height: 60vh;
-  animation: slideDown 0.3s ease;
+  gap: var(--spacing-lg);
 }
 
-@keyframes slideDown {
-  from {
-    opacity: 0;
-    transform: translateY(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+.drawer-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: 1001;
+}
+
+/* Drawer slide animation */
+.drawer-enter-active,
+.drawer-leave-active {
+  transition: transform 0.3s ease;
+}
+
+.drawer-enter-from,
+.drawer-leave-to {
+  transform: translateX(-100%);
+}
+
+.drawer-enter-to,
+.drawer-leave-from {
+  transform: translateX(0);
 }
 
 /* View Toggle */
