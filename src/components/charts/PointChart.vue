@@ -48,7 +48,8 @@ import {
   CategoryScale,
   Title,
   Tooltip,
-  Legend
+  Legend,
+  Filler
 } from 'chart.js'
 
 // Register Chart.js components
@@ -61,7 +62,8 @@ Chart.register(
   CategoryScale,
   Title,
   Tooltip,
-  Legend
+  Legend,
+  Filler
 )
 
 const props = defineProps({
