@@ -16,7 +16,7 @@
     <div class="equipment-stats">
       <div class="stat-item">
         <span class="stat-label">Points</span>
-        <span class="stat-value">{{ points.length }}</span>
+        <span class="stat-value">{{ equipment.pointCount || 0 }}</span>
       </div>
       <div class="stat-item">
         <span class="stat-label">Status</span>
@@ -31,7 +31,7 @@
       <div class="points-header">
         <h4>Data Points</h4>
         <button 
-          v-if="points.length > 0" 
+          v-if="equipment.pointCount > 0" 
           @click.stop="togglePoints"
           class="toggle-btn"
         >
@@ -117,7 +117,9 @@ const togglePoints = async () => {
 const loadPoints = async () => {
   loading.value = true
   try {
+    console.log(`Loading points for equipment: ${props.equipment.id} (${props.equipment.name})`)
     points.value = await deviceStore.loadDevicePoints(props.equipment.id)
+    console.log(`Loaded ${points.value.length} points:`, points.value)
   } catch (error) {
     console.error('Failed to load points:', error)
   } finally {

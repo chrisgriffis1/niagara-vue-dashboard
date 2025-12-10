@@ -64,12 +64,19 @@ class MockDataAdapter {
     let pointIndex = 0;
 
     this.equipment.forEach((equip, equipIndex) => {
-      const pointCount = pointIndex < remainder ? pointsPerEquipment + 1 : pointsPerEquipment;
+      const pointCount = equipIndex < remainder ? pointsPerEquipment + 1 : pointsPerEquipment;
       const equipPoints = this.points.slice(pointIndex, pointIndex + pointCount);
       
       this.equipmentPointsMap.set(equip.id, equipPoints);
       pointIndex += pointCount;
+      
+      // Debug logging for first few equipment
+      if (equipIndex < 3) {
+        console.log(`Equipment ${equip.id} (${equip.name}): ${equipPoints.length} points assigned`)
+      }
     });
+    
+    console.log(`✓ Mapped ${this.points.length} points across ${this.equipment.length} equipment`)
   }
 
   /**
