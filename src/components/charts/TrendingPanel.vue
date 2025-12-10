@@ -438,6 +438,65 @@ watch([selectedPoints, timeRange], async () => {
   overflow: hidden;
 }
 
+/* Mobile Landscape: Minimize chrome, maximize chart */
+@media (max-width: 768px) and (orientation: landscape) {
+  .trending-panel {
+    max-width: 100%;
+    max-height: 100vh;
+    border-radius: 0;
+  }
+  
+  /* Hide header in landscape */
+  .panel-header {
+    padding: var(--spacing-xs) var(--spacing-sm);
+  }
+  
+  .panel-header h3 {
+    font-size: var(--font-size-sm);
+  }
+  
+  /* Compact quick controls */
+  .quick-controls {
+    padding: var(--spacing-xs) var(--spacing-sm);
+    gap: var(--spacing-xs);
+  }
+  
+  .point-chip-compact {
+    padding: 2px var(--spacing-xs);
+    font-size: 10px;
+  }
+  
+  .quick-actions-bar button {
+    padding: var(--spacing-xs);
+    font-size: var(--font-size-xs);
+  }
+  
+  /* Hide view toggle in landscape */
+  .view-toggle {
+    padding: var(--spacing-xs) var(--spacing-sm);
+  }
+  
+  .toggle-btn {
+    padding: var(--spacing-xs);
+    font-size: var(--font-size-xs);
+  }
+  
+  /* Maximize chart space */
+  .display-section {
+    padding: var(--spacing-xs);
+    min-height: auto;
+  }
+  
+  .chart-container {
+    min-height: 300px;
+  }
+  
+  /* Hide action bar in landscape */
+  .action-bar {
+    display: none;
+  }
+}
+
 /* Header */
 .panel-header {
   display: flex;
@@ -830,6 +889,88 @@ watch([selectedPoints, timeRange], async () => {
 
   .chart-container {
     min-height: 300px;
+  }
+  
+  /* Settings drawer takes full width on mobile portrait */
+  .settings-drawer {
+    width: 100%;
+    max-width: 100vw;
+  }
+}
+
+/* Mobile Landscape Optimizations */
+@media (max-width: 768px) and (orientation: landscape) {
+  /* Full screen mode automatically in landscape */
+  .trending-panel {
+    max-width: 100vw;
+    max-height: 100vh;
+    border-radius: 0;
+  }
+  
+  /* Minimize all UI chrome */
+  .panel-header {
+    padding: var(--spacing-xs) var(--spacing-sm);
+  }
+  
+  .panel-header h3 {
+    font-size: var(--font-size-sm);
+  }
+  
+  .close-btn {
+    width: 32px;
+    height: 32px;
+    font-size: var(--font-size-md);
+  }
+  
+  /* Compact controls */
+  .quick-controls {
+    padding: var(--spacing-xs) var(--spacing-sm);
+  }
+  
+  .point-chip-compact {
+    padding: 2px 6px;
+    font-size: 10px;
+  }
+  
+  .quick-actions-bar {
+    gap: var(--spacing-xs);
+  }
+  
+  .quick-actions-bar button {
+    padding: 4px 8px;
+    font-size: 10px;
+  }
+  
+  /* Compact view toggle */
+  .view-toggle {
+    padding: var(--spacing-xs) var(--spacing-sm);
+  }
+  
+  .toggle-btn {
+    padding: var(--spacing-xs);
+    font-size: 11px;
+  }
+  
+  /* Maximize chart */
+  .display-section {
+    padding: var(--spacing-xs);
+    min-height: auto;
+    flex: 1;
+  }
+  
+  .chart-container {
+    min-height: auto;
+    height: 100%;
+  }
+  
+  /* Hide action bar */
+  .action-bar {
+    display: none;
+  }
+  
+  /* Settings drawer in landscape */
+  .settings-drawer {
+    width: 350px;
   }
 }
 </style>

@@ -453,6 +453,28 @@ watch(() => props.point, (newPoint) => {
   }
 }
 
+/* Mobile Landscape: Maximize chart height */
+@media (max-width: 768px) and (orientation: landscape) {
+  .chart-container-embedded {
+    height: 70vh;
+    padding: var(--spacing-xs);
+  }
+  
+  .chart-header-embedded {
+    padding: var(--spacing-xs);
+    margin-bottom: var(--spacing-xs);
+  }
+  
+  .chart-header-embedded .chart-title h3 {
+    font-size: var(--font-size-sm);
+    margin-bottom: 0;
+  }
+  
+  .chart-subtitle {
+    font-size: var(--font-size-xs);
+  }
+}
+
 /* Prevent body scroll when chart is open */
 body:has(.chart-overlay) {
   overflow: hidden;
