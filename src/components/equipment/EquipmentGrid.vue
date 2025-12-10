@@ -32,7 +32,7 @@
             :class="['chip', { active: selectedType === null }]"
             @click="selectedType = null"
           >
-            All ({{ equipmentList.length }})
+            All ({{ filteredEquipment.length }})
           </button>
           <button
             v-for="type in equipmentTypes"
@@ -306,24 +306,96 @@ const filteredEquipment = computed(() => {
   return filtered
 })
 
-// Get count for specific type
+// Get count for specific type (considering other active filters)
 const getTypeCount = (type) => {
-  return equipmentList.value.filter(e => e.type === type).length
+  let filtered = equipmentList.value
+  
+  // Apply location filter if active
+  if (selectedLocation.value) {
+    filtered = filtered.filter(e => e.location === selectedLocation.value)
+  }
+  
+  // Apply alarm filter if active
+  if (selectedAlarmFilter.value && selectedAlarmFilter.value !== 'all') {
+    if (selectedAlarmFilter.value === 'with-alarms') {
+      filtered = filtered.filter(e => equipmentWithAlarms.value.has(e.id))
+    } else if (selectedAlarmFilter.value === 'warning') {
+      filtered = filtered.filter(e => {
+        const hasAlarm = equipmentWithAlarms.value.has(e.id)
+        if (hasAlarm) {
+          const alarms = alarmStore.activeAlarms.filter(a => a.equipmentId === e.id)
+          const priorities = alarms.map(a => a.priority)
+          return !priorities.includes('critical') && 
+                 !priorities.includes('high') && 
+                 !priorities.includes('medium')
+        }
+        return e.status === 'warning'
+      })
+    } else {
+      const priorityEquipment = getEquipmentByAlarmPriority(selectedAlarmFilter.value)
+      filtered = filtered.filter(e => priorityEquipment.has(e.id))
+    }
+  }
+  
+  // Now count by type
+  return filtered.filter(e => e.type === type).length
 }
 
-// Get count for specific location
+// Get count for specific location (considering other active filters)
 const getLocationCount = (location) => {
-  return equipmentList.value.filter(e => e.location === location).length
+  let filtered = equipmentList.value
+  
+  // Apply type filter if active
+  if (selectedType.value) {
+    filtered = filtered.filter(e => e.type === selectedType.value)
+  }
+  
+  // Apply alarm filter if active
+  if (selectedAlarmFilter.value && selectedAlarmFilter.value !== 'all') {
+    if (selectedAlarmFilter.value === 'with-alarms') {
+      filtered = filtered.filter(e => equipmentWithAlarms.value.has(e.id))
+    } else if (selectedAlarmFilter.value === 'warning') {
+      filtered = filtered.filter(e => {
+        const hasAlarm = equipmentWithAlarms.value.has(e.id)
+        if (hasAlarm) {
+          const alarms = alarmStore.activeAlarms.filter(a => a.equipmentId === e.id)
+          const priorities = alarms.map(a => a.priority)
+          return !priorities.includes('critical') && 
+                 !priorities.includes('high') && 
+                 !priorities.includes('medium')
+        }
+        return e.status === 'warning'
+      })
+    } else {
+      const priorityEquipment = getEquipmentByAlarmPriority(selectedAlarmFilter.value)
+      filtered = filtered.filter(e => priorityEquipment.has(e.id))
+    }
+  }
+  
+  // Now count by location
+  return filtered.filter(e => e.location === location).length
 }
 
-// Get count for alarm filter
+// Get count for alarm filter (considering other active filters)
 const getAlarmCount = (filter) => {
+  let filtered = equipmentList.value
+  
+  // Apply type filter if active
+  if (selectedType.value) {
+    filtered = filtered.filter(e => e.type === selectedType.value)
+  }
+  
+  // Apply location filter if active
+  if (selectedLocation.value) {
+    filtered = filtered.filter(e => e.location === selectedLocation.value)
+  }
+  
+  // Now count by alarm status
   if (filter === 'with-alarms') {
-    return equipmentWithAlarms.value.size
+    return filtered.filter(e => equipmentWithAlarms.value.has(e.id)).length
   }
   if (filter === 'warning') {
-    // Count equipment with warning status or low priority alarms
-    return equipmentList.value.filter(e => {
+    return filtered.filter(e => {
       const hasAlarm = equipmentWithAlarms.value.has(e.id)
       if (hasAlarm) {
         const alarms = alarmStore.activeAlarms.filter(a => a.equipmentId === e.id)
@@ -335,7 +407,8 @@ const getAlarmCount = (filter) => {
       return e.status === 'warning'
     }).length
   }
-  return getEquipmentByAlarmPriority(filter).size
+  const priorityEquipment = getEquipmentByAlarmPriority(filter)
+  return filtered.filter(e => priorityEquipment.has(e.id)).length
 }
 
 // Get count for status filter
