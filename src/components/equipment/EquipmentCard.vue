@@ -23,8 +23,8 @@
       </div>
       <div class="stat-item">
         <span class="stat-label">Status</span>
-        <span class="stat-value" :class="`status-${equipment.status}`">
-          {{ equipment.status }}
+        <span class="stat-value" :class="`status-${statusClass}`">
+          {{ displayStatus }}
         </span>
       </div>
     </div>
@@ -110,6 +110,17 @@ const equipmentAlarms = computed(() => {
   return alarmStore.activeAlarms.filter(alarm => alarm.equipmentId === props.equipment.id)
 })
 
+// Display status - show alarm priority if alarms exist
+const displayStatus = computed(() => {
+  if (equipmentAlarms.value.length > 0) {
+    const priorities = equipmentAlarms.value.map(a => a.priority)
+    if (priorities.includes('critical')) return 'critical'
+    if (priorities.includes('high')) return 'high'
+    if (priorities.includes('medium')) return 'medium'
+  }
+  return props.equipment.status
+})
+
 // Check if a point has an alarm
 const getPointAlarm = (point) => {
   // Check if point name/type matches alarm message
@@ -122,8 +133,17 @@ const getPointAlarm = (point) => {
   })
 }
 
-// Status indicator color based on equipment status
+// Status indicator color based on equipment status and alarms
 const statusClass = computed(() => {
+  // Check if equipment has alarms - highest priority alarm determines status
+  if (equipmentAlarms.value.length > 0) {
+    const priorities = equipmentAlarms.value.map(a => a.priority)
+    if (priorities.includes('critical')) return 'error'
+    if (priorities.includes('high')) return 'warning'
+    if (priorities.includes('medium')) return 'warning'
+  }
+  
+  // Otherwise use equipment status
   switch (props.equipment.status) {
     case 'ok': return 'ok'
     case 'warning': return 'warning'
@@ -294,6 +314,8 @@ watch(() => props.equipment.id, () => {
 
 .stat-value.status-error {
   color: var(--color-error);
+  font-weight: var(--font-weight-bold);
+  text-transform: uppercase;
 }
 
 /* Points Section */
