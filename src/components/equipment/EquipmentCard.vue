@@ -44,17 +44,33 @@
 
       <div v-if="pointsExpanded" class="points-list">
         <!-- Mini Trend for Primary Point -->
-        <div v-if="primaryPoint && miniChartData.length > 0" class="mini-chart-section">
+        <div v-if="miniChartData.length > 0" class="mini-chart-section">
           <div class="mini-chart-header">
-            <span class="mini-chart-label">{{ primaryPoint.name }} - Last Hour</span>
+            <span class="mini-chart-label">{{ selectedMiniPoint?.name }} - Last Hour</span>
             <button @click.stop="handleTrendClick" class="trend-btn" title="Open full trending">
               📊 View Trend
             </button>
           </div>
+          
+          <!-- Point Selector Tabs -->
+          <div v-if="trendablePoints.length > 1" class="point-tabs">
+            <button
+              v-for="point in trendablePoints"
+              :key="point.id"
+              @click.stop="selectMiniPoint(point)"
+              :class="['point-tab', { active: selectedMiniPoint?.id === point.id }]"
+              :title="point.name"
+            >
+              {{ point.type }}
+            </button>
+          </div>
+          
           <MiniChart 
             :data="miniChartData" 
             :color="getMiniChartColor()"
             :loading="loadingMiniChart"
+            :point-name="selectedMiniPoint?.name"
+            :unit="selectedMiniPoint?.unit"
           />
         </div>
 
@@ -125,6 +141,14 @@ const points = ref([])
 const miniChartData = ref([])
 const loadingMiniChart = ref(false)
 const primaryPoint = ref(null)
+const selectedMiniPoint = ref(null)
+
+// Get trendable points (numeric types)
+const trendablePoints = computed(() => {
+  return points.value.filter(p => 
+    ['Temperature', 'Pressure', 'Flow', 'Speed', 'Power', 'Current', 'Voltage', 'Setpoint'].includes(p.type)
+  ).slice(0, 6) // Max 6 tabs for clean UI
+})
 
 // Get alarms for this equipment
 const equipmentAlarms = computed(() => {
@@ -214,29 +238,49 @@ const loadMiniChartData = async () => {
     
     if (!primaryPoint.value) return
     
+    // Set as selected mini point
+    selectedMiniPoint.value = primaryPoint.value
+    
     // Load last hour of data
-    loadingMiniChart.value = true
+    await loadMiniChartForPoint(selectedMiniPoint.value)
+  } catch (error) {
+    console.error('Failed to load mini-chart data:', error)
+  }
+}
+
+// Load mini-chart for specific point
+const loadMiniChartForPoint = async (point) => {
+  if (!point) return
+  
+  loadingMiniChart.value = true
+  try {
     await adapter.initialize()
     const now = new Date()
     const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000)
-    miniChartData.value = await adapter.getHistoricalData(primaryPoint.value.id, oneHourAgo, now)
+    miniChartData.value = await adapter.getHistoricalData(point.id, oneHourAgo, now)
   } catch (error) {
-    console.error('Failed to load mini-chart data:', error)
+    console.error('Failed to load mini-chart for point:', error)
   } finally {
     loadingMiniChart.value = false
   }
 }
 
-// Open full trending panel for primary point
+// Select different point for mini-chart
+const selectMiniPoint = async (point) => {
+  selectedMiniPoint.value = point
+  await loadMiniChartForPoint(point)
+}
+
+// Open full trending panel for selected point
 const handleTrendClick = () => {
-  if (primaryPoint.value) {
-    handlePointClick(primaryPoint.value)
+  if (selectedMiniPoint.value) {
+    handlePointClick(selectedMiniPoint.value)
   }
 }
 
 // Get mini-chart color based on status
 const getMiniChartColor = () => {
-  const alarm = getPointAlarm(primaryPoint.value)
+  const alarm = getPointAlarm(selectedMiniPoint.value)
   if (alarm) {
     switch (alarm.priority) {
       case 'critical': return '#ef4444'
@@ -397,6 +441,38 @@ watch(() => props.equipment.id, () => {
 .trend-btn:hover {
   background-color: rgba(59, 130, 246, 0.8);
   transform: scale(1.05);
+}
+
+/* Point Selector Tabs */
+.point-tabs {
+  display: flex;
+  gap: var(--spacing-xs);
+  margin-bottom: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
+.point-tab {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background-color: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  min-height: unset;
+}
+
+.point-tab:hover {
+  background-color: var(--color-bg-hover);
+  border-color: var(--color-accent-primary);
+}
+
+.point-tab.active {
+  background-color: var(--color-accent-primary);
+  border-color: var(--color-accent-primary);
+  color: white;
+  font-weight: var(--font-weight-semibold);
 }
 
 .stat-item {

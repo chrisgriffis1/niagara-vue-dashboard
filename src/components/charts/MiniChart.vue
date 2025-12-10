@@ -25,17 +25,19 @@ import {
   PointElement,
   LinearScale,
   CategoryScale,
-  Filler
+  Filler,
+  Tooltip
 } from 'chart.js'
 
-// Register minimal Chart.js components
+// Register Chart.js components including Tooltip
 Chart.register(
   LineController,
   LineElement,
   PointElement,
   LinearScale,
   CategoryScale,
-  Filler
+  Filler,
+  Tooltip
 )
 
 const props = defineProps({
@@ -50,6 +52,14 @@ const props = defineProps({
   loading: {
     type: Boolean,
     default: false
+  },
+  pointName: {
+    type: String,
+    default: ''
+  },
+  unit: {
+    type: String,
+    default: ''
   }
 })
 
@@ -73,7 +83,14 @@ const initChart = () => {
   }
 
   const values = props.data.map(d => d.value)
-  const labels = props.data.map(() => '') // No labels for sparkline
+  const labels = props.data.map(d => {
+    const date = new Date(d.timestamp)
+    return date.toLocaleTimeString('en-US', { 
+      hour: 'numeric', 
+      minute: '2-digit',
+      hour12: true 
+    })
+  })
 
   console.log('MiniChart: Creating chart with', values.length, 'data points')
 
@@ -82,13 +99,17 @@ const initChart = () => {
     data: {
       labels: labels,
       datasets: [{
+        label: props.pointName,
         data: values,
         borderColor: props.color,
         backgroundColor: props.color + '20',
         borderWidth: 2,
         tension: 0.4,
         pointRadius: 0,
-        pointHoverRadius: 0,
+        pointHoverRadius: 4,
+        pointHoverBackgroundColor: props.color,
+        pointHoverBorderColor: '#fff',
+        pointHoverBorderWidth: 2,
         fill: true
       }]
     },
@@ -97,7 +118,35 @@ const initChart = () => {
       maintainAspectRatio: false,
       plugins: {
         legend: { display: false },
-        tooltip: { enabled: false }
+        tooltip: { 
+          enabled: true,
+          mode: 'index',
+          intersect: false,
+          backgroundColor: 'rgba(0, 0, 0, 0.95)',
+          titleColor: '#fff',
+          bodyColor: '#fff',
+          borderColor: props.color,
+          borderWidth: 2,
+          padding: 12,
+          displayColors: false,
+          titleFont: {
+            size: 12,
+            weight: 'bold'
+          },
+          bodyFont: {
+            size: 14,
+            weight: 'normal'
+          },
+          callbacks: {
+            title: (context) => {
+              return context[0].label // Time
+            },
+            label: (context) => {
+              const value = Math.round(context.parsed.y * 100) / 100
+              return `${value} ${props.unit || ''}`
+            }
+          }
+        }
       },
       scales: {
         x: {
@@ -108,7 +157,8 @@ const initChart = () => {
         }
       },
       interaction: {
-        mode: 'none'
+        mode: 'index',
+        intersect: false
       },
       animation: {
         duration: 0
