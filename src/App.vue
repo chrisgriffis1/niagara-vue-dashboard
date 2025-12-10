@@ -9,62 +9,67 @@
     </header>
 
     <main class="app-main">
-      <!-- Building Stats -->
-      <div v-if="stats" class="stats-grid">
-        <div class="stat-card card">
-          <div class="stat-value">{{ stats.equipmentCount }}</div>
-          <div class="stat-label">Equipment</div>
+      <!-- Show BuildingView if active, otherwise show welcome -->
+      <BuildingView v-if="showBuildingView" @back="showBuildingView = false" />
+      
+      <template v-else>
+        <!-- Building Stats -->
+        <div v-if="stats" class="stats-grid">
+          <div class="stat-card card">
+            <div class="stat-value">{{ stats.equipmentCount }}</div>
+            <div class="stat-label">Equipment</div>
+          </div>
+          <div class="stat-card card">
+            <div class="stat-value">{{ stats.pointCount }}</div>
+            <div class="stat-label">Points</div>
+          </div>
+          <div class="stat-card card">
+            <div class="stat-value">{{ stats.equipmentTypes?.length || 0 }}</div>
+            <div class="stat-label">Types</div>
+          </div>
+          <div class="stat-card card">
+            <div class="stat-value">{{ stats.locations?.length || 0 }}</div>
+            <div class="stat-label">Locations</div>
+          </div>
         </div>
-        <div class="stat-card card">
-          <div class="stat-value">{{ stats.pointCount }}</div>
-          <div class="stat-label">Points</div>
-        </div>
-        <div class="stat-card card">
-          <div class="stat-value">{{ stats.equipmentTypes?.length || 0 }}</div>
-          <div class="stat-label">Types</div>
-        </div>
-        <div class="stat-card card">
-          <div class="stat-value">{{ stats.locations?.length || 0 }}</div>
-          <div class="stat-label">Locations</div>
-        </div>
-      </div>
 
-      <!-- Status Info -->
-      <div class="welcome-card card">
-        <h2>Building Automation Dashboard</h2>
-        <p>Tesla-inspired interface for field technicians</p>
-        <div class="status-list">
-          <p class="status-ok">✓ Vue 3 + Vite initialized</p>
-          <p class="status-ok">✓ Dark theme configured</p>
-          <p class="status-ok">✓ Pinia state management ready</p>
-          <p class="status-ok">✓ Chart.js installed</p>
-          <p :class="dataLoaded ? 'status-ok' : 'status-warning'">
-            {{ dataLoaded ? '✓ Mock data loaded' : '⏳ Loading data...' }}
-          </p>
+        <!-- Status Info -->
+        <div class="welcome-card card">
+          <h2>Building Automation Dashboard</h2>
+          <p>Tesla-inspired interface for field technicians</p>
+          <div class="status-list">
+            <p class="status-ok">✓ Vue 3 + Vite initialized</p>
+            <p class="status-ok">✓ Dark theme configured</p>
+            <p class="status-ok">✓ Pinia state management ready</p>
+            <p class="status-ok">✓ Chart.js installed</p>
+            <p :class="dataLoaded ? 'status-ok' : 'status-warning'">
+              {{ dataLoaded ? '✓ Mock data loaded' : '⏳ Loading data...' }}
+            </p>
+          </div>
+          
+          <!-- Quick Actions -->
+          <div v-if="dataLoaded" class="actions">
+            <button @click="showBuildingView = true" class="primary">
+              Open Building View
+            </button>
+            <button @click="testAdapter">
+              Test MockDataAdapter
+            </button>
+          </div>
         </div>
-        
-        <!-- Quick Actions -->
-        <div v-if="dataLoaded" class="actions">
-          <button @click="testAdapter" class="primary">
-            Test MockDataAdapter
-          </button>
-          <button @click="showBuildingView">
-            Open Building View
-          </button>
-        </div>
-      </div>
 
-      <!-- Test Results -->
-      <div v-if="testResults.length > 0" class="test-results card">
-        <h3>Adapter Test Results</h3>
-        <div v-for="(result, index) in testResults" :key="index" class="test-result">
-          <span class="test-name">{{ result.name }}</span>
-          <span :class="result.success ? 'status-ok' : 'status-error'">
-            {{ result.success ? '✓ Pass' : '✗ Fail' }}
-          </span>
-          <div class="test-detail">{{ result.detail }}</div>
+        <!-- Test Results -->
+        <div v-if="testResults.length > 0" class="test-results card">
+          <h3>Adapter Test Results</h3>
+          <div v-for="(result, index) in testResults" :key="index" class="test-result">
+            <span class="test-name">{{ result.name }}</span>
+            <span :class="result.success ? 'status-ok' : 'status-error'">
+              {{ result.success ? '✓ Pass' : '✗ Fail' }}
+            </span>
+            <div class="test-detail">{{ result.detail }}</div>
+          </div>
         </div>
-      </div>
+      </template>
     </main>
   </div>
 </template>
@@ -72,11 +77,13 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import MockDataAdapter from './adapters/MockDataAdapter'
+import BuildingView from './views/BuildingView.vue'
 
 const adapter = new MockDataAdapter()
 const stats = ref(null)
 const dataLoaded = ref(false)
 const testResults = ref([])
+const showBuildingView = ref(false)
 
 onMounted(async () => {
   try {
@@ -149,10 +156,6 @@ const testAdapter = async () => {
       detail: error.message
     })
   }
-}
-
-const showBuildingView = () => {
-  alert('BuildingView will be integrated in the next step!\n\nThe view is ready at src/views/BuildingView.vue')
 }
 </script>
 
