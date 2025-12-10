@@ -1,5 +1,6 @@
 <template>
-  <div class="chart-overlay" @click.self="handleClose">
+  <!-- Standalone mode: with overlay -->
+  <div v-if="!embedded" class="chart-overlay" @click.self="handleClose">
     <div class="point-chart card">
       <div class="chart-header">
         <div class="chart-title">
@@ -29,6 +30,37 @@
       <div v-show="!loading && (point.isMultiPoint || dataPoints.length > 0)" class="chart-container">
         <canvas ref="chartCanvas"></canvas>
       </div>
+    </div>
+  </div>
+
+  <!-- Embedded mode: no overlay, just the chart -->
+  <div v-else class="point-chart-embedded">
+    <div class="chart-header-embedded">
+      <div class="chart-title">
+        <h3>{{ title }}</h3>
+        <p v-if="dataPoints.length > 0 && !point.isMultiPoint" class="chart-subtitle">
+          {{ dataPoints.length }} data points
+        </p>
+        <p v-if="point.isMultiPoint" class="chart-subtitle">
+          {{ point.points.length }} points
+        </p>
+      </div>
+    </div>
+    
+    <!-- Loading State -->
+    <div v-if="loading" class="chart-loading">
+      <div class="loading-spinner"></div>
+      <p>Loading chart data...</p>
+    </div>
+    
+    <!-- Empty State -->
+    <div v-else-if="!point.isMultiPoint && dataPoints.length === 0" class="chart-empty">
+      <p>No historical data available</p>
+    </div>
+    
+    <!-- Chart Display -->
+    <div v-show="!loading && (point.isMultiPoint || dataPoints.length > 0)" class="chart-container-embedded">
+      <canvas ref="chartCanvas"></canvas>
     </div>
   </div>
 </template>
@@ -75,6 +107,10 @@ const props = defineProps({
     required: true
   },
   loading: {
+    type: Boolean,
+    default: false
+  },
+  embedded: {
     type: Boolean,
     default: false
   }
@@ -420,6 +456,38 @@ watch(() => props.point, (newPoint) => {
 /* Prevent body scroll when chart is open */
 body:has(.chart-overlay) {
   overflow: hidden;
+}
+
+/* Embedded mode styles (for use inside TrendingPanel) */
+.point-chart-embedded {
+  width: 100%;
+  padding: 0;
+}
+
+.chart-header-embedded {
+  margin-bottom: var(--spacing-md);
+  padding-bottom: var(--spacing-sm);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.chart-header-embedded .chart-title h3 {
+  margin: 0 0 var(--spacing-xs) 0;
+  font-size: var(--font-size-lg);
+  color: var(--color-text-primary);
+}
+
+.chart-container-embedded {
+  height: 450px;
+  position: relative;
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+}
+
+@media (max-width: 768px) {
+  .chart-container-embedded {
+    height: 350px;
+  }
 }
 </style>
 

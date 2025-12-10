@@ -59,7 +59,7 @@
           <PointChart
             :point="chartPoint"
             :loading="loading"
-            @close="() => {}"
+            :embedded="true"
           />
         </div>
 
