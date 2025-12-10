@@ -24,6 +24,7 @@
 
     <!-- Filter Section -->
     <div v-if="showFilter" class="filter-section card">
+      <!-- Equipment Type Filter -->
       <div class="filter-group">
         <label>Equipment Type</label>
         <div class="filter-chips">
@@ -42,6 +43,74 @@
             {{ type }} ({{ getTypeCount(type) }})
           </button>
         </div>
+      </div>
+
+      <!-- Location/Zone Filter -->
+      <div class="filter-group">
+        <label>Location / Zone</label>
+        <div class="filter-chips">
+          <button
+            :class="['chip', { active: selectedLocation === null }]"
+            @click="selectedLocation = null"
+          >
+            All Locations
+          </button>
+          <button
+            v-for="location in equipmentLocations"
+            :key="location"
+            :class="['chip', { active: selectedLocation === location }]"
+            @click="selectedLocation = location"
+          >
+            {{ location }} ({{ getLocationCount(location) }})
+          </button>
+        </div>
+      </div>
+
+      <!-- Alarm Filter -->
+      <div class="filter-group">
+        <label>Alarm Status</label>
+        <div class="filter-chips">
+          <button
+            :class="['chip', { active: selectedAlarmFilter === null || selectedAlarmFilter === 'all' }]"
+            @click="selectedAlarmFilter = null"
+          >
+            All Equipment
+          </button>
+          <button
+            :class="['chip alarm-chip', { active: selectedAlarmFilter === 'with-alarms' }]"
+            @click="selectedAlarmFilter = 'with-alarms'"
+          >
+            🔔 With Alarms ({{ getAlarmCount('with-alarms') }})
+          </button>
+          <button
+            v-if="getAlarmCount('critical') > 0"
+            :class="['chip alarm-chip critical', { active: selectedAlarmFilter === 'critical' }]"
+            @click="selectedAlarmFilter = 'critical'"
+          >
+            ⚠ Critical ({{ getAlarmCount('critical') }})
+          </button>
+          <button
+            v-if="getAlarmCount('high') > 0"
+            :class="['chip alarm-chip high', { active: selectedAlarmFilter === 'high' }]"
+            @click="selectedAlarmFilter = 'high'"
+          >
+            ⚡ High ({{ getAlarmCount('high') }})
+          </button>
+          <button
+            v-if="getAlarmCount('medium') > 0"
+            :class="['chip alarm-chip medium', { active: selectedAlarmFilter === 'medium' }]"
+            @click="selectedAlarmFilter = 'medium'"
+          >
+            ℹ Medium ({{ getAlarmCount('medium') }})
+          </button>
+        </div>
+      </div>
+
+      <!-- Clear Filters Button -->
+      <div v-if="hasActiveFilters" class="filter-actions">
+        <button @click="clearFilters" class="clear-filters-btn">
+          ✕ Clear All Filters
+        </button>
       </div>
     </div>
 
@@ -81,13 +150,17 @@
 import { ref, computed, onMounted } from 'vue'
 import EquipmentCard from './EquipmentCard.vue'
 import { useDeviceStore } from '../../stores/deviceStore'
+import { useAlarmStore } from '../../stores/alarmStore'
 
 const deviceStore = useDeviceStore()
+const alarmStore = useAlarmStore()
 const emit = defineEmits(['point-clicked'])
 
 const loading = ref(false)
 const showFilter = ref(false)
 const selectedType = ref(null)
+const selectedLocation = ref(null)
+const selectedAlarmFilter = ref(null) // 'all', 'with-alarms', 'critical', 'high', 'medium', 'low'
 
 // Get equipment list from store
 const equipmentList = computed(() => deviceStore.allDevices)
@@ -98,18 +171,80 @@ const equipmentTypes = computed(() => {
   return types.sort()
 })
 
-// Filter equipment by type
+// Get unique locations
+const equipmentLocations = computed(() => {
+  const locations = [...new Set(equipmentList.value.map(e => e.location))]
+  return locations.sort()
+})
+
+// Get equipment IDs with alarms
+const equipmentWithAlarms = computed(() => {
+  return new Set(alarmStore.activeAlarms.map(alarm => alarm.equipmentId))
+})
+
+// Get equipment by alarm priority
+const getEquipmentByAlarmPriority = (priority) => {
+  const alarms = alarmStore.alarmsByPriority(priority).filter(a => a.active)
+  return new Set(alarms.map(a => a.equipmentId))
+}
+
+// Filter equipment by type, location, and alarm status
 const filteredEquipment = computed(() => {
-  if (!selectedType.value) {
-    return equipmentList.value
+  let filtered = equipmentList.value
+
+  // Filter by type
+  if (selectedType.value) {
+    filtered = filtered.filter(e => e.type === selectedType.value)
   }
-  return equipmentList.value.filter(e => e.type === selectedType.value)
+
+  // Filter by location
+  if (selectedLocation.value) {
+    filtered = filtered.filter(e => e.location === selectedLocation.value)
+  }
+
+  // Filter by alarm
+  if (selectedAlarmFilter.value && selectedAlarmFilter.value !== 'all') {
+    if (selectedAlarmFilter.value === 'with-alarms') {
+      filtered = filtered.filter(e => equipmentWithAlarms.value.has(e.id))
+    } else {
+      // Filter by specific alarm priority
+      const priorityEquipment = getEquipmentByAlarmPriority(selectedAlarmFilter.value)
+      filtered = filtered.filter(e => priorityEquipment.has(e.id))
+    }
+  }
+
+  return filtered
 })
 
 // Get count for specific type
 const getTypeCount = (type) => {
   return equipmentList.value.filter(e => e.type === type).length
 }
+
+// Get count for specific location
+const getLocationCount = (location) => {
+  return equipmentList.value.filter(e => e.location === location).length
+}
+
+// Get count for alarm filter
+const getAlarmCount = (filter) => {
+  if (filter === 'with-alarms') {
+    return equipmentWithAlarms.value.size
+  }
+  return getEquipmentByAlarmPriority(filter).size
+}
+
+// Clear all filters
+const clearFilters = () => {
+  selectedType.value = null
+  selectedLocation.value = null
+  selectedAlarmFilter.value = null
+}
+
+// Check if any filters are active
+const hasActiveFilters = computed(() => {
+  return selectedType.value || selectedLocation.value || selectedAlarmFilter.value
+})
 
 // Toggle filter visibility
 const toggleFilter = () => {
@@ -183,6 +318,14 @@ onMounted(async () => {
   padding: var(--spacing-lg);
 }
 
+.filter-group {
+  margin-bottom: var(--spacing-lg);
+}
+
+.filter-group:last-child {
+  margin-bottom: 0;
+}
+
 .filter-group label {
   display: block;
   margin-bottom: var(--spacing-sm);
@@ -220,6 +363,59 @@ onMounted(async () => {
 .chip.active {
   background-color: var(--color-accent-primary);
   border-color: var(--color-accent-primary);
+  color: var(--color-text-primary);
+}
+
+/* Alarm Filter Chips */
+.alarm-chip {
+  font-weight: var(--font-weight-semibold);
+}
+
+.alarm-chip.critical {
+  border-color: var(--color-error);
+}
+
+.alarm-chip.critical.active {
+  background-color: var(--color-error);
+  color: white;
+}
+
+.alarm-chip.high {
+  border-color: var(--color-warning);
+}
+
+.alarm-chip.high.active {
+  background-color: var(--color-warning);
+  color: var(--color-bg-primary);
+}
+
+.alarm-chip.medium {
+  border-color: var(--color-info);
+}
+
+.alarm-chip.medium.active {
+  background-color: var(--color-info);
+  color: white;
+}
+
+/* Filter Actions */
+.filter-actions {
+  margin-top: var(--spacing-md);
+  padding-top: var(--spacing-md);
+  border-top: 1px solid var(--color-border);
+}
+
+.clear-filters-btn {
+  background-color: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-size: var(--font-size-sm);
+  min-height: unset;
+}
+
+.clear-filters-btn:hover {
+  background-color: var(--color-bg-hover);
   color: var(--color-text-primary);
 }
 
