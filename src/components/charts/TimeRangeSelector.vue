@@ -94,7 +94,7 @@
  * Supports quick ranges, custom ranges, alarm context, and time scrubbing
  */
 
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 
 const props = defineProps({
   modelValue: {
@@ -279,6 +279,14 @@ const formatDateTime = (date) => {
     minute: '2-digit'
   })
 }
+
+// Emit initial range on mount
+onMounted(() => {
+  if (timeRange.value?.start) {
+    emit('update:modelValue', timeRange.value)
+    emit('range-changed', timeRange.value)
+  }
+})
 
 // Watch for changes
 watch(timeRange, (newRange) => {

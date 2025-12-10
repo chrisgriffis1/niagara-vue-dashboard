@@ -143,7 +143,10 @@ const deviceStore = useDeviceStore()
 const adapter = new MockDataAdapter()
 
 const viewMode = ref('chart')
-const timeRange = ref({ start: null, end: null })
+// Default to 24 hours
+const now = new Date()
+const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+const timeRange = ref({ start: yesterday, end: now })
 const selectedPoints = ref([])
 const historicalData = ref({})
 const equipmentPoints = ref({})
@@ -186,6 +189,9 @@ const chartPoint = computed(() => {
 
 // Initialize with initial point if provided
 onMounted(async () => {
+  // Initialize adapter
+  await adapter.initialize()
+  
   // Load equipment points
   await loadAllEquipmentPoints()
   
@@ -203,6 +209,9 @@ onMounted(async () => {
       equipmentId: props.initialEquipment.id,
       color: colors[colorIndex]
     })
+    
+    // Load data immediately for initial point
+    await loadHistoricalData()
   }
   
   // Setup keyboard shortcuts
