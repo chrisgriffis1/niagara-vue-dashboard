@@ -40,13 +40,14 @@
       <AlarmList @equipment-clicked="handleEquipmentClick" />
     </div>
 
-    <!-- Chart Section (when point is selected) -->
-    <PointChart
-      v-if="selectedPoint"
-      :point-id="selectedPoint.id"
-      :title="`${selectedPoint.equipmentName} - ${selectedPoint.name}`"
-      :data="selectedPoint.data"
-      @close="closeChart"
+    <!-- Trending Panel (Advanced) -->
+    <TrendingPanel
+      v-if="showTrendingPanel"
+      :initial-equipment="selectedEquipment"
+      :initial-point="selectedPoint"
+      :initial-alarm="selectedAlarm"
+      :available-equipment="deviceStore.equipment"
+      @close="closeTrendingPanel"
     />
 
     <!-- Equipment Grid -->
@@ -68,7 +69,7 @@ import { useDeviceStore } from '../stores/deviceStore'
 import { useAlarmStore } from '../stores/alarmStore'
 import DashboardSummary from '../components/dashboard/DashboardSummary.vue'
 import EquipmentGrid from '../components/equipment/EquipmentGrid.vue'
-import PointChart from '../components/charts/PointChart.vue'
+import TrendingPanel from '../components/charts/TrendingPanel.vue'
 import AlarmList from '../components/alarms/AlarmList.vue'
 
 const emit = defineEmits(['back'])
@@ -76,7 +77,10 @@ const emit = defineEmits(['back'])
 const deviceStore = useDeviceStore()
 const alarmStore = useAlarmStore()
 const loading = ref(false)
+const showTrendingPanel = ref(false)
 const selectedPoint = ref(null)
+const selectedEquipment = ref(null)
+const selectedAlarm = ref(null)
 const equipmentGridRef = ref(null)
 const alarmsSection = ref(null)
 const showDashboard = ref(true)
@@ -95,19 +99,23 @@ const refreshData = async () => {
 }
 
 const handlePointClick = async (point) => {
-  // Load historical data for the clicked point
-  const history = await deviceStore.getPointHistory(point.id)
+  // Find the equipment for this point
+  const equipment = deviceStore.equipment.find(e => {
+    const points = deviceStore.devicePoints[e.id] || []
+    return points.some(p => p.id === point.id)
+  })
   
-  selectedPoint.value = {
-    id: point.id,
-    name: point.name,
-    equipmentName: point.equipmentName || 'Equipment',
-    data: history
-  }
+  selectedPoint.value = point
+  selectedEquipment.value = equipment || null
+  selectedAlarm.value = null
+  showTrendingPanel.value = true
 }
 
-const closeChart = () => {
+const closeTrendingPanel = () => {
+  showTrendingPanel.value = false
   selectedPoint.value = null
+  selectedEquipment.value = null
+  selectedAlarm.value = null
 }
 
 const goBack = () => {

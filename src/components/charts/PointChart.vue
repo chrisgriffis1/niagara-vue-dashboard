@@ -4,11 +4,14 @@
       <div class="chart-header">
         <div class="chart-title">
           <h3>{{ title }}</h3>
-          <p v-if="data.length > 0" class="chart-subtitle">
-            {{ data.length }} data points over 24 hours
+          <p v-if="dataPoints.length > 0 && !point.isMultiPoint" class="chart-subtitle">
+            {{ dataPoints.length }} data points
+          </p>
+          <p v-if="point.isMultiPoint" class="chart-subtitle">
+            {{ point.points.length }} points
           </p>
         </div>
-        <button @click="handleClose" class="close-btn" title="Close chart">✕</button>
+        <button @click="handleClose" class="close-btn" title="Close chart (Esc)">✕</button>
       </div>
       
       <!-- Loading State -->
@@ -18,12 +21,12 @@
       </div>
       
       <!-- Empty State -->
-      <div v-else-if="data.length === 0" class="chart-empty">
+      <div v-else-if="!point.isMultiPoint && dataPoints.length === 0" class="chart-empty">
         <p>No historical data available</p>
       </div>
       
       <!-- Chart Display -->
-      <div v-show="!loading && data.length > 0" class="chart-container">
+      <div v-show="!loading && (point.isMultiPoint || dataPoints.length > 0)" class="chart-container">
         <canvas ref="chartCanvas"></canvas>
       </div>
     </div>
@@ -67,24 +70,19 @@ Chart.register(
 )
 
 const props = defineProps({
-  pointId: {
-    type: String,
+  point: {
+    type: Object,
     required: true
   },
-  title: {
-    type: String,
-    default: 'Point Trend'
-  },
-  data: {
-    type: Array,
-    default: () => []
+  loading: {
+    type: Boolean,
+    default: false
   }
 })
 
 const emit = defineEmits(['close'])
 
 const chartCanvas = ref(null)
-const loading = ref(true)
 let chartInstance = null
 
 const formatTimestamp = (timestamp) => {
@@ -96,17 +94,34 @@ const formatTimestamp = (timestamp) => {
   })
 }
 
+const title = ref('')
+const dataPoints = ref([])
+
+const updateData = () => {
+  if (!props.point) return
+  
+  if (props.point.isMultiPoint) {
+    // Multi-point mode
+    title.value = props.point.name
+    dataPoints.value = props.point.points || []
+  } else {
+    // Single point mode
+    title.value = `${props.point.name} - ${props.point.equipmentName || ''}`
+    dataPoints.value = props.point.data || []
+  }
+}
+
 const initChart = async () => {
   // Wait for next tick to ensure canvas is rendered
   await nextTick()
   
   if (!chartCanvas.value) {
-    loading.value = false
     return
   }
   
-  if (props.data.length === 0) {
-    loading.value = false
+  updateData()
+  
+  if (!props.point.isMultiPoint && dataPoints.value.length === 0) {
     return
   }
 
@@ -117,24 +132,51 @@ const initChart = async () => {
     chartInstance.destroy()
   }
   
-  const labels = props.data.map(d => formatTimestamp(d.timestamp))
-  const values = props.data.map(d => d.value)
+  let datasets = []
+  
+  if (props.point.isMultiPoint) {
+    // Multi-point: create dataset for each point
+    datasets = props.point.points.map(point => {
+      const history = props.point.data[point.id] || []
+      return {
+        label: `${point.name} (${point.unit || ''})`,
+        data: history.map(d => d.value),
+        borderColor: point.color,
+        backgroundColor: point.color + '20',
+        tension: 0.4,
+        borderWidth: 2,
+        pointRadius: 2,
+        pointHoverRadius: 4,
+        fill: false
+      }
+    })
+    
+    // Use labels from first point
+    const firstPoint = props.point.points[0]
+    const firstHistory = props.point.data[firstPoint.id] || []
+    var labels = firstHistory.map(d => formatTimestamp(d.timestamp))
+  } else {
+    // Single point mode
+    var labels = dataPoints.value.map(d => formatTimestamp(d.timestamp))
+    const values = dataPoints.value.map(d => d.value)
+    datasets = [{
+      label: `${props.point.name} (${props.point.unit || ''})`,
+      data: values,
+      borderColor: 'rgb(59, 130, 246)',
+      backgroundColor: 'rgba(59, 130, 246, 0.1)',
+      tension: 0.4,
+      borderWidth: 2,
+      pointRadius: 2,
+      pointHoverRadius: 4,
+      fill: true
+    }]
+  }
   
   chartInstance = new Chart(ctx, {
     type: 'line',
     data: {
       labels: labels,
-      datasets: [{
-        label: props.title,
-        data: values,
-        borderColor: 'rgb(59, 130, 246)',
-        backgroundColor: 'rgba(59, 130, 246, 0.1)',
-        tension: 0.4,
-        borderWidth: 2,
-        pointRadius: 2,
-        pointHoverRadius: 4,
-        fill: true
-      }]
+      datasets: datasets
     },
     options: {
       responsive: true,
@@ -187,8 +229,6 @@ const initChart = async () => {
       }
     }
   })
-  
-  loading.value = false
 }
 
 const handleClose = (event) => {
@@ -200,10 +240,8 @@ const handleClose = (event) => {
 }
 
 onMounted(() => {
-  if (props.data.length > 0) {
+  if (props.point) {
     initChart()
-  } else {
-    loading.value = false
   }
 })
 
@@ -215,8 +253,8 @@ onUnmounted(() => {
 })
 
 // Watch for data changes
-watch(() => props.data, (newData) => {
-  if (newData && newData.length > 0) {
+watch(() => props.point, (newPoint) => {
+  if (newPoint) {
     initChart()
   }
 }, { deep: true })
