@@ -43,6 +43,21 @@
       </div>
 
       <div v-if="pointsExpanded" class="points-list">
+        <!-- Mini Trend for Primary Point -->
+        <div v-if="primaryPoint && miniChartData.length > 0" class="mini-chart-section">
+          <div class="mini-chart-header">
+            <span class="mini-chart-label">{{ primaryPoint.name }} - Last Hour</span>
+            <button @click.stop="handleTrendClick" class="trend-btn" title="Open full trending">
+              📊 View Trend
+            </button>
+          </div>
+          <MiniChart 
+            :data="miniChartData" 
+            :color="getMiniChartColor()"
+            :loading="loadingMiniChart"
+          />
+        </div>
+
         <div v-if="loading" class="points-loading">
           Loading points...
         </div>
@@ -82,9 +97,11 @@
  * Max 300 lines per component rule
  */
 
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useDeviceStore } from '../../stores/deviceStore'
 import { useAlarmStore } from '../../stores/alarmStore'
+import MiniChart from '../charts/MiniChart.vue'
+import MockDataAdapter from '../../adapters/MockDataAdapter'
 
 const props = defineProps({
   equipment: {
@@ -101,9 +118,13 @@ const emit = defineEmits(['point-clicked', 'equipment-clicked'])
 
 const deviceStore = useDeviceStore()
 const alarmStore = useAlarmStore()
+const adapter = new MockDataAdapter()
 const pointsExpanded = ref(false)
 const loading = ref(false)
 const points = ref([])
+const miniChartData = ref([])
+const loadingMiniChart = ref(false)
+const primaryPoint = ref(null)
 
 // Get alarms for this equipment
 const equipmentAlarms = computed(() => {
@@ -156,8 +177,13 @@ const statusClass = computed(() => {
 const togglePoints = async () => {
   pointsExpanded.value = !pointsExpanded.value
   
-  if (pointsExpanded.value && points.value.length === 0) {
-    await loadPoints()
+  if (pointsExpanded.value) {
+    // Load points if not already loaded
+    if (points.value.length === 0) {
+      await loadPoints()
+    }
+    // Load mini-chart data on-demand when expanded
+    await loadMiniChartData()
   }
 }
 
@@ -171,6 +197,55 @@ const loadPoints = async () => {
   } finally {
     loading.value = false
   }
+}
+
+// Load mini-chart data (last 1 hour) - only when expanded
+const loadMiniChartData = async () => {
+  if (!props.equipment.pointCount) return
+  
+  try {
+    // Use already-loaded points from card expansion
+    if (!points.value || points.value.length === 0) return
+    
+    // Pick primary point (first one, or first with alarm, or first numeric)
+    primaryPoint.value = points.value.find(p => getPointAlarm(p)) || 
+                          points.value.find(p => ['Temperature', 'Pressure', 'Flow'].includes(p.type)) ||
+                          points.value[0]
+    
+    if (!primaryPoint.value) return
+    
+    // Load last hour of data
+    loadingMiniChart.value = true
+    await adapter.initialize()
+    const now = new Date()
+    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000)
+    miniChartData.value = await adapter.getHistoricalData(primaryPoint.value.id, oneHourAgo, now)
+  } catch (error) {
+    console.error('Failed to load mini-chart data:', error)
+  } finally {
+    loadingMiniChart.value = false
+  }
+}
+
+// Open full trending panel for primary point
+const handleTrendClick = () => {
+  if (primaryPoint.value) {
+    handlePointClick(primaryPoint.value)
+  }
+}
+
+// Get mini-chart color based on status
+const getMiniChartColor = () => {
+  const alarm = getPointAlarm(primaryPoint.value)
+  if (alarm) {
+    switch (alarm.priority) {
+      case 'critical': return '#ef4444'
+      case 'high': return '#f59e0b'
+      case 'medium': return '#3b82f6'
+      default: return '#6366f1'
+    }
+  }
+  return '#3b82f6' // Default blue
 }
 
 // Handle point click
@@ -283,6 +358,45 @@ watch(() => props.equipment.id, () => {
   grid-template-columns: repeat(2, 1fr);
   gap: var(--spacing-md);
   margin-bottom: var(--spacing-md);
+}
+
+/* Mini Chart Section */
+.mini-chart-section {
+  margin-bottom: var(--spacing-md);
+  padding: var(--spacing-sm);
+  background-color: var(--color-bg-primary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+}
+
+.mini-chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-sm);
+}
+
+.mini-chart-label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  font-weight: var(--font-weight-medium);
+}
+
+.trend-btn {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background-color: var(--color-accent-primary);
+  border: none;
+  color: white;
+  font-size: var(--font-size-xs);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  min-height: unset;
+}
+
+.trend-btn:hover {
+  background-color: rgba(59, 130, 246, 0.8);
+  transform: scale(1.05);
 }
 
 .stat-item {
