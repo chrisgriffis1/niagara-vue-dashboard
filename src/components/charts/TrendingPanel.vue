@@ -7,8 +7,46 @@
         <button @click="handleClose" class="close-btn" title="Close (Esc)">✕</button>
       </div>
 
-      <!-- Configuration Section -->
-      <div class="config-section">
+      <!-- Quick Controls Bar (Always Visible) -->
+      <div class="quick-controls">
+        <!-- Selected Points Chips -->
+        <div v-if="selectedPoints.length > 0" class="selected-points-compact">
+          <div 
+            v-for="point in selectedPoints" 
+            :key="point.id"
+            class="point-chip-compact"
+            :style="{ borderLeftColor: point.color }"
+          >
+            <span class="point-name">{{ point.name }}</span>
+            <button @click="removePoint(point.id)" class="remove-btn">✕</button>
+          </div>
+        </div>
+        
+        <!-- Quick Action Buttons -->
+        <div class="quick-actions-bar">
+          <button @click="showAdvancedSettings = !showAdvancedSettings" class="settings-toggle">
+            {{ showAdvancedSettings ? '▼ Hide Settings' : '⚙️ Advanced Settings' }}
+          </button>
+          <button 
+            v-if="currentEquipment"
+            @click="addAllPointsFromEquipment"
+            class="quick-btn"
+            title="Add all points from current equipment"
+          >
+            + All Points
+          </button>
+          <button 
+            v-if="selectedPoints.length > 0"
+            @click="clearAll"
+            class="quick-btn"
+          >
+            ✕ Clear
+          </button>
+        </div>
+      </div>
+
+      <!-- Advanced Settings (Collapsible) -->
+      <div v-if="showAdvancedSettings" class="config-section">
         <!-- Time Range Selector -->
         <TimeRangeSelector 
           v-model="timeRange"
@@ -151,6 +189,7 @@ const selectedPoints = ref([])
 const historicalData = ref({})
 const equipmentPoints = ref({})
 const loading = ref(false)
+const showAdvancedSettings = ref(false) // Collapsed by default
 
 const currentEquipment = computed(() => props.initialEquipment)
 
@@ -262,6 +301,35 @@ const handleSuggestionAdd = (point) => {
   }
 }
 
+const addAllPointsFromEquipment = () => {
+  if (!currentEquipment.value) return
+  
+  const points = equipmentPoints.value[currentEquipment.value.id] || []
+  points.forEach(point => {
+    if (!selectedPoints.value.some(p => p.id === point.id)) {
+      const colorIndex = selectedPoints.value.length % 10
+      const colors = [
+        '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6',
+        '#ec4899', '#14b8a6', '#f97316', '#6366f1', '#84cc16'
+      ]
+      
+      selectedPoints.value.push({
+        ...point,
+        equipmentName: currentEquipment.value.name,
+        equipmentId: currentEquipment.value.id,
+        color: colors[colorIndex]
+      })
+    }
+  })
+  
+  handlePointsChange(selectedPoints.value)
+}
+
+const removePoint = (pointId) => {
+  selectedPoints.value = selectedPoints.value.filter(p => p.id !== pointId)
+  handlePointsChange(selectedPoints.value)
+}
+
 const loadHistoricalData = async () => {
   loading.value = true
   historicalData.value = {}
@@ -366,7 +434,92 @@ watch([selectedPoints, timeRange], async () => {
   color: var(--color-text-primary);
 }
 
-/* Configuration Section */
+/* Quick Controls Bar */
+.quick-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md) var(--spacing-lg);
+  background-color: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.selected-points-compact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
+}
+
+.point-chip-compact {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background-color: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+}
+
+.point-chip-compact .point-name {
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-medium);
+}
+
+.point-chip-compact .remove-btn {
+  background: transparent;
+  border: none;
+  color: var(--color-text-secondary);
+  padding: 0;
+  min-height: unset;
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  line-height: 1;
+  transition: color var(--transition-fast);
+}
+
+.point-chip-compact .remove-btn:hover {
+  color: var(--color-error);
+}
+
+.quick-actions-bar {
+  display: flex;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
+.settings-toggle {
+  padding: var(--spacing-xs) var(--spacing-md);
+  background-color: var(--color-accent-primary);
+  border: none;
+  color: white;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  min-height: unset;
+  transition: all var(--transition-fast);
+}
+
+.settings-toggle:hover {
+  background-color: rgba(59, 130, 246, 0.8);
+}
+
+.quick-btn {
+  padding: var(--spacing-xs) var(--spacing-md);
+  background-color: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  min-height: unset;
+  transition: all var(--transition-fast);
+}
+
+.quick-btn:hover {
+  background-color: var(--color-bg-hover);
+  border-color: var(--color-accent-primary);
+}
+
+/* Configuration Section (Collapsible) */
 .config-section {
   padding: var(--spacing-lg);
   display: flex;
@@ -374,7 +527,19 @@ watch([selectedPoints, timeRange], async () => {
   gap: var(--spacing-md);
   border-bottom: 1px solid var(--color-border);
   overflow-y: auto;
-  max-height: 40vh;
+  max-height: 50vh;
+  animation: slideDown 0.2s ease;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    max-height: 0;
+  }
+  to {
+    opacity: 1;
+    max-height: 50vh;
+  }
 }
 
 /* View Toggle */
@@ -410,10 +575,12 @@ watch([selectedPoints, timeRange], async () => {
   padding: var(--spacing-lg);
   overflow-y: auto;
   position: relative;
+  min-height: 500px;
 }
 
 .chart-container {
-  min-height: 400px;
+  height: 100%;
+  min-height: 500px;
 }
 
 /* Empty State */
