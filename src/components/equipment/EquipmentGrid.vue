@@ -5,7 +5,10 @@
       <div class="header-info">
         <h2>Equipment Overview</h2>
         <p class="equipment-count">
-          {{ equipmentList.length }} {{ equipmentList.length === 1 ? 'device' : 'devices' }}
+          {{ filteredEquipment.length }} {{ filteredEquipment.length === 1 ? 'device' : 'devices' }}
+          <span v-if="searchQuery || hasActiveFilters" class="filter-indicator">
+            (filtered)
+          </span>
         </p>
       </div>
       <div class="header-actions">
@@ -18,6 +21,28 @@
         </button>
         <button @click="refreshEquipment" :disabled="loading">
           {{ loading ? 'Loading...' : 'Refresh' }}
+        </button>
+      </div>
+    </div>
+
+    <!-- Search Bar -->
+    <div class="search-section">
+      <div class="search-box">
+        <span class="search-icon">🔍</span>
+        <input
+          v-model="searchQuery"
+          type="text"
+          placeholder="Search equipment by name, type, or location... (Press / to focus)"
+          class="search-input"
+          @keydown.esc="searchQuery = ''"
+        />
+        <button 
+          v-if="searchQuery"
+          @click="searchQuery = ''" 
+          class="clear-search"
+          title="Clear search"
+        >
+          ✕
         </button>
       </div>
     </div>
@@ -213,7 +238,7 @@
  * Tesla-inspired design with responsive layout
  */
 
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import EquipmentCard from './EquipmentCard.vue'
 import { useDeviceStore } from '../../stores/deviceStore'
 import { useAlarmStore } from '../../stores/alarmStore'
@@ -225,6 +250,8 @@ const emit = defineEmits(['point-clicked'])
 const loading = ref(false)
 const showFilter = ref(false)
 const showAdvancedFilters = ref(false)
+const searchQuery = ref('')
+const searchInputRef = ref(null)
 const selectedType = ref(null)
 const selectedLocation = ref(null)
 const selectedAlarmFilter = ref(null) // 'all', 'with-alarms', 'critical', 'high', 'medium', 'low', 'warning'
@@ -256,9 +283,20 @@ const getEquipmentByAlarmPriority = (priority) => {
   return new Set(alarms.map(a => a.equipmentId))
 }
 
-// Filter equipment by type, location, alarm status, and communication status
+// Filter equipment by type, location, alarm status, communication status, and search
 const filteredEquipment = computed(() => {
   let filtered = equipmentList.value
+
+  // Filter by search query
+  if (searchQuery.value.trim()) {
+    const query = searchQuery.value.toLowerCase()
+    filtered = filtered.filter(e => 
+      e.name.toLowerCase().includes(query) ||
+      e.type.toLowerCase().includes(query) ||
+      e.location.toLowerCase().includes(query) ||
+      e.id.toLowerCase().includes(query)
+    )
+  }
 
   // Filter by type
   if (selectedType.value) {
@@ -422,6 +460,7 @@ const getStatusCount = (status) => {
 
 // Clear all filters
 const clearFilters = () => {
+  searchQuery.value = ''
   selectedType.value = null
   selectedLocation.value = null
   selectedAlarmFilter.value = null
@@ -430,7 +469,8 @@ const clearFilters = () => {
 
 // Check if any filters are active
 const hasActiveFilters = computed(() => {
-  return selectedType.value || 
+  return searchQuery.value.trim() ||
+         selectedType.value || 
          selectedLocation.value || 
          selectedAlarmFilter.value ||
          selectedStatusFilter.value
@@ -463,7 +503,36 @@ onMounted(async () => {
   if (equipmentList.value.length === 0) {
     await refreshEquipment()
   }
+  
+  // Add keyboard shortcut listener
+  window.addEventListener('keydown', handleKeyboardShortcut)
 })
+
+onUnmounted(() => {
+  // Remove keyboard shortcut listener
+  window.removeEventListener('keydown', handleKeyboardShortcut)
+})
+
+// Keyboard shortcuts
+const handleKeyboardShortcut = (event) => {
+  // / key - Focus search
+  if (event.key === '/' && !event.metaKey && !event.ctrlKey) {
+    const searchInput = document.querySelector('.search-input')
+    if (searchInput && document.activeElement !== searchInput) {
+      event.preventDefault()
+      searchInput.focus()
+    }
+  }
+  
+  // Escape key - Clear search or close filters
+  if (event.key === 'Escape') {
+    if (searchQuery.value) {
+      searchQuery.value = ''
+    } else if (showFilter.value) {
+      showFilter.value = false
+    }
+  }
+}
 </script>
 
 <style scoped>
@@ -780,6 +849,70 @@ onMounted(async () => {
   .filter-chips {
     justify-content: flex-start;
   }
+}
+
+/* Search Section */
+.search-section {
+  margin-bottom: var(--spacing-lg);
+}
+
+.search-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+  background-color: var(--color-bg-card);
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-sm) var(--spacing-md);
+  transition: all var(--transition-fast);
+}
+
+.search-box:focus-within {
+  border-color: var(--color-accent-primary);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.search-icon {
+  font-size: var(--font-size-lg);
+  margin-right: var(--spacing-sm);
+  color: var(--color-text-secondary);
+}
+
+.search-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-md);
+  font-family: inherit;
+  padding: var(--spacing-xs) 0;
+}
+
+.search-input::placeholder {
+  color: var(--color-text-tertiary);
+}
+
+.clear-search {
+  background: transparent;
+  border: none;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-lg);
+  padding: var(--spacing-xs);
+  min-height: unset;
+  cursor: pointer;
+  transition: color var(--transition-fast);
+  border-radius: var(--radius-sm);
+}
+
+.clear-search:hover {
+  color: var(--color-text-primary);
+  background-color: var(--color-bg-hover);
+}
+
+.filter-indicator {
+  color: var(--color-accent-primary);
+  font-weight: var(--font-weight-semibold);
 }
 </style>
 

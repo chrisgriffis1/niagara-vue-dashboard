@@ -14,8 +14,18 @@
       </button>
     </div>
 
+    <!-- Dashboard Summary -->
+    <DashboardSummary
+      @filter-alarms="handleFilterAlarms"
+      @filter-critical="handleFilterCritical"
+      @show-alarms="scrollToAlarms"
+      @view-all="showDashboard = false"
+    />
+
     <!-- Alarms Section -->
-    <AlarmList @equipment-clicked="handleEquipmentClick" />
+    <div ref="alarmsSection">
+      <AlarmList @equipment-clicked="handleEquipmentClick" />
+    </div>
 
     <!-- Chart Section (when point is selected) -->
     <PointChart
@@ -27,7 +37,10 @@
     />
 
     <!-- Equipment Grid -->
-    <EquipmentGrid @point-clicked="handlePointClick" />
+    <EquipmentGrid 
+      ref="equipmentGridRef"
+      @point-clicked="handlePointClick" 
+    />
   </div>
 </template>
 
@@ -40,6 +53,7 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useDeviceStore } from '../stores/deviceStore'
 import { useAlarmStore } from '../stores/alarmStore'
+import DashboardSummary from '../components/dashboard/DashboardSummary.vue'
 import EquipmentGrid from '../components/equipment/EquipmentGrid.vue'
 import PointChart from '../components/charts/PointChart.vue'
 import AlarmList from '../components/alarms/AlarmList.vue'
@@ -50,6 +64,8 @@ const deviceStore = useDeviceStore()
 const alarmStore = useAlarmStore()
 const loading = ref(false)
 const selectedPoint = ref(null)
+const equipmentGridRef = ref(null)
+const alarmsSection = ref(null)
 
 const refreshData = async () => {
   loading.value = true
@@ -103,6 +119,30 @@ const handleEquipmentClick = (equipmentId) => {
     }, 2000)
   } else {
     console.warn('Equipment card not found:', equipmentId)
+  }
+}
+
+// Handle quick actions from dashboard
+const handleFilterAlarms = () => {
+  // Trigger filter for equipment with alarms
+  if (equipmentGridRef.value) {
+    equipmentGridRef.value.selectedAlarmFilter = 'with-alarms'
+  }
+}
+
+const handleFilterCritical = () => {
+  // Trigger filter for critical alarms
+  if (equipmentGridRef.value) {
+    equipmentGridRef.value.selectedAlarmFilter = 'critical'
+  }
+}
+
+const scrollToAlarms = () => {
+  if (alarmsSection.value) {
+    alarmsSection.value.scrollIntoView({ 
+      behavior: 'smooth', 
+      block: 'start' 
+    })
   }
 }
 
