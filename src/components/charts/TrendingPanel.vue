@@ -115,8 +115,8 @@ import PointSelector from './PointSelector.vue'
 import SmartSuggestions from './SmartSuggestions.vue'
 import PointChart from './PointChart.vue'
 import TableView from './TableView.vue'
-import { useDeviceStore } from '@/stores/deviceStore'
-import MockDataAdapter from '@/adapters/MockDataAdapter'
+import { useDeviceStore } from '../../stores/deviceStore'
+import MockDataAdapter from '../../adapters/MockDataAdapter'
 
 const props = defineProps({
   initialEquipment: {
