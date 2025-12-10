@@ -104,10 +104,10 @@
           📋 Table View
         </button>
         <button 
-          v-if="viewMode === 'chart' && hasData"
+          v-if="hasData"
           @click="isFullScreen = true"
           class="toggle-btn maximize-btn"
-          title="Maximize chart for better visibility"
+          title="Maximize for better visibility"
         >
           ⛶ Maximize
         </button>
@@ -130,11 +130,12 @@
         </div>
 
         <!-- Table View -->
-        <TableView
-          v-if="viewMode === 'table' && hasData"
-          :points="selectedPoints"
-          :data="historicalData"
-        />
+        <div v-if="viewMode === 'table' && hasData" class="table-view-container">
+          <TableView
+            :points="selectedPoints"
+            :data="historicalData"
+          />
+        </div>
 
         <!-- Empty State -->
         <div v-if="!hasData" class="empty-state">
@@ -768,6 +769,12 @@ watch([selectedPoints, timeRange], async () => {
 .full-screen-display .chart-container {
   min-height: 100vh;
   height: 100vh;
+}
+
+.full-screen-display .table-view-container {
+  min-height: 100vh;
+  height: 100vh;
+  overflow: auto;
 }
 
 .exit-fullscreen-btn {
