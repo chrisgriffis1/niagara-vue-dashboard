@@ -26,7 +26,7 @@
         @filter-alarms="handleFilterAlarms"
         @filter-critical="handleFilterCritical"
         @show-alarms="scrollToAlarms"
-        @view-all="() => {}"
+        @view-all="handleViewAll"
       />
     </div>
     <div v-else class="dashboard-collapsed">
@@ -138,19 +138,14 @@ const handleEquipmentClick = (equipmentId) => {
 
 // Handle quick actions from dashboard
 const handleFilterAlarms = () => {
-  // Access the grid component's data properly
-  const grid = equipmentGridRef.value
-  if (grid) {
-    // Set the filter value directly on the component's ref
-    grid.$el.querySelector('.search-input')?.scrollIntoView({ behavior: 'smooth' })
+  if (equipmentGridRef.value) {
+    equipmentGridRef.value.applyAlarmFilter('with-alarms')
   }
 }
 
 const handleFilterCritical = () => {
-  // Scroll to equipment grid and user can manually filter
-  const grid = equipmentGridRef.value
-  if (grid) {
-    grid.$el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  if (equipmentGridRef.value) {
+    equipmentGridRef.value.applyAlarmFilter('critical')
   }
 }
 
@@ -160,6 +155,12 @@ const scrollToAlarms = () => {
       behavior: 'smooth', 
       block: 'start' 
     })
+  }
+}
+
+const handleViewAll = () => {
+  if (equipmentGridRef.value) {
+    equipmentGridRef.value.scrollToGrid()
   }
 }
 

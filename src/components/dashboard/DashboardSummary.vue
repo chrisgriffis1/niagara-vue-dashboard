@@ -13,7 +13,7 @@
     </div>
 
     <!-- Active Alarms Card -->
-    <div class="summary-card card alarm-card" @click="$emit('filter-alarms')">
+    <div class="summary-card card alarm-card" @click="$emit('show-alarms')">
       <div class="card-icon">🔔</div>
       <div class="card-content">
         <h3>Active Alarms</h3>
@@ -38,7 +38,7 @@
     </div>
 
     <!-- Equipment Status Card -->
-    <div class="summary-card card equipment-card">
+    <div class="summary-card card equipment-card" @click="$emit('view-all')">
       <div class="card-icon">⚙️</div>
       <div class="card-content">
         <h3>Equipment Status</h3>
@@ -185,8 +185,20 @@ const healthLabel = computed(() => {
   box-shadow: var(--shadow-lg);
 }
 
+.summary-card.health-card {
+  cursor: default;
+}
+
+.summary-card.health-card:hover {
+  transform: none;
+}
+
 .actions-card {
   cursor: default;
+}
+
+.actions-card:hover {
+  transform: none;
 }
 
 .card-icon {

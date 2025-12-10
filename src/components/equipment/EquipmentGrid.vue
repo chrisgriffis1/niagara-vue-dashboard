@@ -504,6 +504,48 @@ const handlePointClick = (point) => {
   emit('point-clicked', point)
 }
 
+// Expose filter methods for parent components
+const applyAlarmFilter = (filterType) => {
+  selectedAlarmFilter.value = filterType
+  showFilter.value = true
+  
+  // Scroll to equipment grid
+  setTimeout(() => {
+    const gridElement = document.querySelector('.equipment-grid')
+    if (gridElement) {
+      gridElement.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }, 100)
+}
+
+const applyLocationFilter = (location) => {
+  selectedLocation.value = location
+  showFilter.value = true
+}
+
+const applyTypeFilter = (type) => {
+  selectedType.value = type
+  showFilter.value = true
+}
+
+const scrollToGrid = () => {
+  setTimeout(() => {
+    const gridElement = document.querySelector('.equipment-grid')
+    if (gridElement) {
+      gridElement.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }, 100)
+}
+
+// Expose methods to parent
+defineExpose({
+  applyAlarmFilter,
+  applyLocationFilter,
+  applyTypeFilter,
+  scrollToGrid,
+  clearFilters
+})
+
 // Load equipment on mount
 onMounted(async () => {
   if (equipmentList.value.length === 0) {
