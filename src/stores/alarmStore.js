@@ -38,21 +38,43 @@ export const useAlarmStore = defineStore('alarm', {
      */
     hasCriticalAlarms: (state) => {
       return state.alarms.some(alarm => alarm.active && alarm.priority === 'critical')
+    },
+
+    /**
+     * Get unacknowledged alarms
+     */
+    unacknowledgedAlarms: (state) => {
+      return state.alarms.filter(alarm => alarm.active && !alarm.acknowledged)
     }
   },
 
   actions: {
     /**
-     * Subscribe to alarm updates from adapter
+     * Initialize alarm subscription with adapter
      */
-    subscribeToAlarms(adapter) {
+    async initializeAlarms(adapter) {
+      if (!adapter) {
+        console.error('No adapter provided to alarm store')
+        return
+      }
+
+      // Unsubscribe from previous subscription if exists
       if (this.unsubscribe) {
         this.unsubscribe()
       }
 
+      // Subscribe to alarm updates
       this.unsubscribe = adapter.subscribeToAlarms((alarms) => {
         this.alarms = alarms
+        console.log(`Alarms updated: ${alarms.length} total`)
       })
+    },
+
+    /**
+     * Subscribe to alarm updates from adapter (legacy method)
+     */
+    subscribeToAlarms(adapter) {
+      this.initializeAlarms(adapter)
     },
 
     /**
@@ -60,9 +82,10 @@ export const useAlarmStore = defineStore('alarm', {
      */
     addAlarm(alarm) {
       this.alarms.push({
-        id: Date.now(),
+        id: `alarm_${Date.now()}`,
         timestamp: new Date(),
         active: true,
+        acknowledged: false,
         ...alarm
       })
     },
@@ -74,6 +97,7 @@ export const useAlarmStore = defineStore('alarm', {
       const alarm = this.alarms.find(a => a.id === alarmId)
       if (alarm) {
         alarm.acknowledged = true
+        console.log(`Alarm acknowledged: ${alarmId}`)
       }
     },
 
@@ -84,6 +108,17 @@ export const useAlarmStore = defineStore('alarm', {
       const alarm = this.alarms.find(a => a.id === alarmId)
       if (alarm) {
         alarm.active = false
+        console.log(`Alarm cleared: ${alarmId}`)
+      }
+    },
+
+    /**
+     * Cleanup subscriptions
+     */
+    cleanup() {
+      if (this.unsubscribe) {
+        this.unsubscribe()
+        this.unsubscribe = null
       }
     }
   }

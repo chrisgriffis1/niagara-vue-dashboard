@@ -10,6 +10,8 @@ export const useDeviceStore = defineStore('device', {
   state: () => ({
     devices: [],
     selectedDevice: null,
+    devicePoints: {}, // Cache points by device ID
+    buildingStats: null,
     loading: false,
     error: null,
     adapter: null
@@ -31,7 +33,26 @@ export const useDeviceStore = defineStore('device', {
     /**
      * Check if devices are loaded
      */
-    hasDevices: (state) => state.devices.length > 0
+    hasDevices: (state) => state.devices.length > 0,
+
+    /**
+     * Get points for selected device
+     */
+    selectedDevicePoints: (state) => {
+      if (!state.selectedDevice) return []
+      return state.devicePoints[state.selectedDevice.id] || []
+    },
+
+    /**
+     * Get equipment count by type
+     */
+    equipmentByType: (state) => {
+      const types = {}
+      state.devices.forEach(device => {
+        types[device.type] = (types[device.type] || 0) + 1
+      })
+      return types
+    }
   },
 
   actions: {
@@ -55,6 +76,7 @@ export const useDeviceStore = defineStore('device', {
       try {
         await this.initializeAdapter()
         this.devices = await this.adapter.discoverDevices()
+        this.buildingStats = await this.adapter.getBuildingStats()
       } catch (err) {
         this.error = err.message
         console.error('Failed to load devices:', err)
@@ -64,10 +86,55 @@ export const useDeviceStore = defineStore('device', {
     },
 
     /**
+     * Load points for a specific device
+     */
+    async loadDevicePoints(deviceId) {
+      try {
+        await this.initializeAdapter()
+        const points = await this.adapter.getPointsByEquipment(deviceId)
+        this.devicePoints[deviceId] = points
+        return points
+      } catch (err) {
+        console.error('Failed to load device points:', err)
+        return []
+      }
+    },
+
+    /**
+     * Get historical data for a point
+     */
+    async getPointHistory(pointId, timeRange) {
+      try {
+        await this.initializeAdapter()
+        return await this.adapter.getHistoricalData(pointId, timeRange)
+      } catch (err) {
+        console.error('Failed to load point history:', err)
+        return []
+      }
+    },
+
+    /**
+     * Get current value of a point
+     */
+    async getPointValue(pointId) {
+      try {
+        await this.initializeAdapter()
+        return await this.adapter.getPointValue(pointId)
+      } catch (err) {
+        console.error('Failed to get point value:', err)
+        return null
+      }
+    },
+
+    /**
      * Select a device for detailed view
      */
-    selectDevice(device) {
+    async selectDevice(device) {
       this.selectedDevice = device
+      // Automatically load points for selected device
+      if (device && !this.devicePoints[device.id]) {
+        await this.loadDevicePoints(device.id)
+      }
     },
 
     /**
@@ -75,6 +142,13 @@ export const useDeviceStore = defineStore('device', {
      */
     clearSelection() {
       this.selectedDevice = null
+    },
+
+    /**
+     * Get the adapter instance (for direct access if needed)
+     */
+    getAdapter() {
+      return this.adapter
     }
   }
 })

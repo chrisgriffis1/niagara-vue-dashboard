@@ -27,25 +27,40 @@
  * Main dashboard view - orchestrates equipment, alarms, and trending
  */
 
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useDeviceStore } from '../stores/deviceStore'
+import { useAlarmStore } from '../stores/alarmStore'
 import EquipmentGrid from '../components/equipment/EquipmentGrid.vue'
 import PointChart from '../components/charts/PointChart.vue'
 import AlarmList from '../components/alarms/AlarmList.vue'
 
 const deviceStore = useDeviceStore()
+const alarmStore = useAlarmStore()
 const loading = ref(false)
 const selectedPoint = ref(null)
 
 const refreshData = async () => {
   loading.value = true
   await deviceStore.loadDevices()
+  
+  // Initialize alarms with the adapter
+  const adapter = deviceStore.getAdapter()
+  if (adapter) {
+    alarmStore.initializeAlarms(adapter)
+  }
+  
   loading.value = false
 }
 
-const handlePointClick = (point) => {
-  // Will load historical data and show chart
-  selectedPoint.value = point
+const handlePointClick = async (point) => {
+  // Load historical data for the clicked point
+  const history = await deviceStore.getPointHistory(point.id)
+  
+  selectedPoint.value = {
+    id: point.id,
+    name: point.name,
+    data: history
+  }
 }
 
 const closeChart = () => {
@@ -54,6 +69,11 @@ const closeChart = () => {
 
 onMounted(() => {
   refreshData()
+})
+
+onUnmounted(() => {
+  // Cleanup alarm subscriptions
+  alarmStore.cleanup()
 })
 </script>
 
