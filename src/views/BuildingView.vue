@@ -15,7 +15,7 @@
     </div>
 
     <!-- Alarms Section -->
-    <AlarmList />
+    <AlarmList @equipment-clicked="handleEquipmentClick" />
 
     <!-- Chart Section (when point is selected) -->
     <PointChart
@@ -84,6 +84,28 @@ const goBack = () => {
   emit('back')
 }
 
+const handleEquipmentClick = (equipmentId) => {
+  console.log('Scrolling to equipment:', equipmentId)
+  
+  // Find the equipment card element by ID
+  const element = document.querySelector(`[data-equipment-id="${equipmentId}"]`)
+  
+  if (element) {
+    element.scrollIntoView({ 
+      behavior: 'smooth', 
+      block: 'center' 
+    })
+    
+    // Highlight the equipment card temporarily
+    element.classList.add('highlight-pulse')
+    setTimeout(() => {
+      element.classList.remove('highlight-pulse')
+    }, 2000)
+  } else {
+    console.warn('Equipment card not found:', equipmentId)
+  }
+}
+
 onMounted(() => {
   refreshData()
 })
@@ -139,6 +161,21 @@ onUnmounted(() => {
   margin: 0;
   color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
+}
+
+/* Highlight animation for equipment cards */
+:deep(.highlight-pulse) {
+  animation: highlightPulse 2s ease;
+  border-color: var(--color-accent-primary) !important;
+}
+
+@keyframes highlightPulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(59, 130, 246, 0.4);
+  }
 }
 
 @media (max-width: 768px) {

@@ -1,5 +1,8 @@
 <template>
-  <div class="equipment-card card">
+  <div 
+    class="equipment-card card" 
+    :data-equipment-id="equipment.id"
+  >
     <!-- Equipment Header -->
     <div class="equipment-header">
       <div class="equipment-info">

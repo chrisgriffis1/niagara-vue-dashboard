@@ -299,21 +299,39 @@ class MockDataAdapter {
     return [
       {
         id: 'alarm_1',
-        message: 'High temperature detected in AHU-006',
-        priority: 'high',
-        timestamp: new Date(Date.now() - 15 * 60 * 1000),
+        message: 'CRITICAL: System pressure exceeds safe limits in AHU-006',
+        priority: 'critical',
+        timestamp: new Date(Date.now() - 5 * 60 * 1000), // 5 minutes ago
         active: true,
         acknowledged: false,
         equipmentId: 'equip_6'
       },
       {
         id: 'alarm_2',
+        message: 'High temperature detected in AHU-006',
+        priority: 'high',
+        timestamp: new Date(Date.now() - 15 * 60 * 1000), // 15 minutes ago
+        active: true,
+        acknowledged: false,
+        equipmentId: 'equip_6'
+      },
+      {
+        id: 'alarm_3',
         message: 'Low pressure warning in Chiller-002',
         priority: 'medium',
-        timestamp: new Date(Date.now() - 45 * 60 * 1000),
+        timestamp: new Date(Date.now() - 45 * 60 * 1000), // 45 minutes ago
         active: true,
         acknowledged: false,
         equipmentId: 'equip_2'
+      },
+      {
+        id: 'alarm_4',
+        message: 'Routine maintenance due for VAV-001',
+        priority: 'low',
+        timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000), // 2 hours ago
+        active: true,
+        acknowledged: false,
+        equipmentId: 'equip_1'
       }
     ];
   }

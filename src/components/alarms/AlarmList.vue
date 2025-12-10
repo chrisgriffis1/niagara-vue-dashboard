@@ -58,7 +58,11 @@
             </div>
             <p class="alarm-message">{{ alarm.message }}</p>
             <div class="alarm-meta">
-              <span v-if="alarm.equipmentId" class="equipment-link">
+              <span 
+                v-if="alarm.equipmentId" 
+                class="equipment-link"
+                @click="handleEquipmentClick(alarm.equipmentId)"
+              >
                 📍 {{ getEquipmentName(alarm.equipmentId) }}
               </span>
               <span class="alarm-timestamp">
@@ -103,6 +107,8 @@
 import { computed } from 'vue'
 import { useAlarmStore } from '../../stores/alarmStore'
 import { useDeviceStore } from '../../stores/deviceStore'
+
+const emit = defineEmits(['equipment-clicked'])
 
 const alarmStore = useAlarmStore()
 const deviceStore = useDeviceStore()
@@ -191,6 +197,11 @@ const getEquipmentName = (equipmentId) => {
 
 const acknowledgeAlarm = (alarmId) => {
   alarmStore.acknowledgeAlarm(alarmId)
+}
+
+const handleEquipmentClick = (equipmentId) => {
+  emit('equipment-clicked', equipmentId)
+  console.log('Equipment clicked from alarm:', equipmentId)
 }
 </script>
 
