@@ -287,15 +287,21 @@ const getEquipmentByAlarmPriority = (priority) => {
 const filteredEquipment = computed(() => {
   let filtered = equipmentList.value
 
-  // Filter by search query
+  // Filter by search query (fuzzy matching)
   if (searchQuery.value.trim()) {
-    const query = searchQuery.value.toLowerCase()
-    filtered = filtered.filter(e => 
-      e.name.toLowerCase().includes(query) ||
-      e.type.toLowerCase().includes(query) ||
-      e.location.toLowerCase().includes(query) ||
-      e.id.toLowerCase().includes(query)
-    )
+    const query = searchQuery.value.toLowerCase().replace(/\s+/g, '') // Remove spaces
+    filtered = filtered.filter(e => {
+      // Remove spaces from equipment fields for comparison
+      const name = e.name.toLowerCase().replace(/\s+/g, '')
+      const type = e.type.toLowerCase().replace(/\s+/g, '')
+      const location = e.location.toLowerCase().replace(/\s+/g, '')
+      const id = e.id.toLowerCase().replace(/\s+/g, '')
+      
+      return name.includes(query) ||
+             type.includes(query) ||
+             location.includes(query) ||
+             id.includes(query)
+    })
   }
 
   // Filter by type

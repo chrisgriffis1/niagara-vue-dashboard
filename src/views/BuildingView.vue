@@ -14,13 +14,26 @@
       </button>
     </div>
 
-    <!-- Dashboard Summary -->
-    <DashboardSummary
-      @filter-alarms="handleFilterAlarms"
-      @filter-critical="handleFilterCritical"
-      @show-alarms="scrollToAlarms"
-      @view-all="showDashboard = false"
-    />
+    <!-- Dashboard Summary (Collapsible) -->
+    <div v-if="showDashboard" class="dashboard-container">
+      <div class="dashboard-header">
+        <h3>Dashboard Summary</h3>
+        <button @click="showDashboard = false" class="collapse-btn" title="Hide dashboard">
+          ▼ Collapse
+        </button>
+      </div>
+      <DashboardSummary
+        @filter-alarms="handleFilterAlarms"
+        @filter-critical="handleFilterCritical"
+        @show-alarms="scrollToAlarms"
+        @view-all="() => {}"
+      />
+    </div>
+    <div v-else class="dashboard-collapsed">
+      <button @click="showDashboard = true" class="expand-btn">
+        ▶ Show Dashboard Summary
+      </button>
+    </div>
 
     <!-- Alarms Section -->
     <div ref="alarmsSection">
@@ -66,6 +79,7 @@ const loading = ref(false)
 const selectedPoint = ref(null)
 const equipmentGridRef = ref(null)
 const alarmsSection = ref(null)
+const showDashboard = ref(true)
 
 const refreshData = async () => {
   loading.value = true
@@ -124,16 +138,19 @@ const handleEquipmentClick = (equipmentId) => {
 
 // Handle quick actions from dashboard
 const handleFilterAlarms = () => {
-  // Trigger filter for equipment with alarms
-  if (equipmentGridRef.value) {
-    equipmentGridRef.value.selectedAlarmFilter = 'with-alarms'
+  // Access the grid component's data properly
+  const grid = equipmentGridRef.value
+  if (grid) {
+    // Set the filter value directly on the component's ref
+    grid.$el.querySelector('.search-input')?.scrollIntoView({ behavior: 'smooth' })
   }
 }
 
 const handleFilterCritical = () => {
-  // Trigger filter for critical alarms
-  if (equipmentGridRef.value) {
-    equipmentGridRef.value.selectedAlarmFilter = 'critical'
+  // Scroll to equipment grid and user can manually filter
+  const grid = equipmentGridRef.value
+  if (grid) {
+    grid.$el.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 }
 
@@ -216,6 +233,50 @@ onUnmounted(() => {
   50% {
     box-shadow: 0 0 0 8px rgba(59, 130, 246, 0.4);
   }
+}
+
+/* Dashboard Container */
+.dashboard-container {
+  margin-bottom: var(--spacing-xl);
+}
+
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-md);
+  padding: var(--spacing-sm) 0;
+}
+
+.dashboard-header h3 {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  color: var(--color-text-secondary);
+}
+
+.collapse-btn, .expand-btn {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  padding: var(--spacing-xs) var(--spacing-md);
+  font-size: var(--font-size-sm);
+  min-height: unset;
+  transition: all var(--transition-fast);
+}
+
+.collapse-btn:hover, .expand-btn:hover {
+  background-color: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-light);
+}
+
+.dashboard-collapsed {
+  margin-bottom: var(--spacing-lg);
+}
+
+.expand-btn {
+  width: 100%;
+  padding: var(--spacing-md);
 }
 
 @media (max-width: 768px) {
