@@ -257,7 +257,7 @@ const loadMiniChartForPoint = async (point) => {
     await adapter.initialize()
     const now = new Date()
     const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000)
-    miniChartData.value = await adapter.getHistoricalData(point.id, oneHourAgo, now)
+    miniChartData.value = await adapter.getHistoricalData(point.id, { start: oneHourAgo, end: now })
   } catch (error) {
     console.error('Failed to load mini-chart for point:', error)
   } finally {

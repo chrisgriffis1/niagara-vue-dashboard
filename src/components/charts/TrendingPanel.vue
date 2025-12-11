@@ -382,7 +382,7 @@ const loadHistoricalData = async () => {
   
   try {
     for (const point of selectedPoints.value) {
-      const data = await adapter.getHistoricalData(point.id, timeRange.value.start, timeRange.value.end)
+      const data = await adapter.getHistoricalData(point.id, { start: timeRange.value.start, end: timeRange.value.end })
       historicalData.value[point.id] = data
     }
   } catch (error) {
