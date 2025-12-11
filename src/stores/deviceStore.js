@@ -62,7 +62,10 @@ export const useDeviceStore = defineStore('device', {
     async initializeAdapter() {
       if (!this.adapter) {
         this.adapter = new MockDataAdapter()
-        await this.adapter.initialize()
+        // Load REAL Niagara data by default
+        console.log('🔄 Loading Real Niagara Data...')
+        await this.adapter.switchDataset('real')
+        console.log('✅ Real data loaded! 83 equipment, 38k+ points')
       }
     },
 

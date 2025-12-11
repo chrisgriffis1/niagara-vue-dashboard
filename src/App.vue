@@ -87,14 +87,14 @@ const showBuildingView = ref(false)
 
 onMounted(async () => {
   try {
-    // Initialize adapter
-    await adapter.initialize()
+    // Initialize adapter with REAL data
+    await adapter.switchDataset('real')
     
     // Load building stats
     stats.value = await adapter.getBuildingStats()
     dataLoaded.value = true
     
-    console.log('✓ App initialized with mock data')
+    console.log('✓ App initialized with real Niagara data')
   } catch (error) {
     console.error('Failed to initialize:', error)
   }

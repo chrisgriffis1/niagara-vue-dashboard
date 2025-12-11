@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MockDataAdapter Test - Real Niagara Data</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            color: white;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5rem;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .controls {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(0,0,0,0.2);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+        }
+
+        .btn-secondary {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            transition: transform 0.3s;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .stat-card h3 {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .stat-card .value {
+            font-size: 36px;
+            font-weight: bold;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .data-section {
+            background: white;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+
+        .data-section h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 24px;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        .equipment-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .equipment-card {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+
+        .equipment-card:hover {
+            transform: translateX(5px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+
+        .equipment-card h4 {
+            color: #333;
+            margin-bottom: 8px;
+            font-size: 18px;
+        }
+
+        .equipment-card .type {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .equipment-card .info {
+            font-size: 14px;
+            color: #666;
+            margin: 4px 0;
+        }
+
+        .points-list {
+            max-height: 400px;
+            overflow-y: auto;
+            margin-top: 15px;
+        }
+
+        .point-item {
+            background: #f8f9fa;
+            padding: 12px;
+            margin-bottom: 8px;
+            border-radius: 6px;
+            border-left: 3px solid #38ef7d;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .point-item .name {
+            font-weight: 600;
+            color: #333;
+        }
+
+        .point-item .value {
+            color: #667eea;
+            font-weight: bold;
+        }
+
+        .point-item .type {
+            font-size: 12px;
+            color: #999;
+        }
+
+        .console {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            border-radius: 12px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            line-height: 1.6;
+            max-height: 400px;
+            overflow-y: auto;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+        }
+
+        .console-entry {
+            margin-bottom: 8px;
+        }
+
+        .console-entry.info { color: #4fc3f7; }
+        .console-entry.success { color: #66bb6a; }
+        .console-entry.error { color: #ef5350; }
+        .console-entry.warning { color: #ffa726; }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: white;
+            font-size: 20px;
+        }
+
+        .spinner {
+            border: 4px solid rgba(255,255,255,0.3);
+            border-top: 4px solid white;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-right: 8px;
+        }
+
+        .badge-info { background: #e3f2fd; color: #1976d2; }
+        .badge-success { background: #e8f5e9; color: #388e3c; }
+        .badge-warning { background: #fff3e0; color: #f57c00; }
+
+        select {
+            padding: 10px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            background: white;
+            transition: border 0.3s;
+        }
+
+        select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        label {
+            font-weight: 600;
+            color: #333;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏢 MockDataAdapter - Real Niagara Data Test</h1>
+
+        <div class="controls">
+            <label for="datasetSelect">Dataset:</label>
+            <select id="datasetSelect">
+                <option value="demo">Demo Data</option>
+                <option value="real" selected>Real Niagara Data (83 equip, 38k points)</option>
+            </select>
+            <button class="btn-primary" onclick="loadData()">🔄 Load Data</button>
+            <button class="btn-success" onclick="showEquipment()">🔧 Show Equipment</button>
+            <button class="btn-secondary" onclick="showStats()">📊 Show Statistics</button>
+        </div>
+
+        <div id="initialMessage" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; border-radius: 12px; text-align: center; margin-bottom: 20px;">
+            <h2 style="color: white; margin-bottom: 15px;">👋 Ready to Load Real Data!</h2>
+            <p style="font-size: 1.1rem; margin-bottom: 20px;">Click the "Load Data" button to load your 83 equipment devices and 38,605 points</p>
+            <button class="btn-primary" onclick="loadData()" style="background: white; color: #667eea; padding: 15px 30px; border: none; border-radius: 8px; font-size: 1.1rem; cursor: pointer; font-weight: bold;">
+                🚀 Load Real Niagara Data Now
+            </button>
+        </div>
+
+        <div id="statsContainer"></div>
+        <div id="dataContainer"></div>
+        
+        <div class="data-section">
+            <h2>📊 Console Output</h2>
+            <div id="consoleOutput" class="console"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        import MockDataAdapter from './src/adapters/MockDataAdapter.js';
+
+        let adapter = null;
+        const consoleOutput = document.getElementById('consoleOutput');
+
+        // Override console methods to capture output
+        const originalLog = console.log;
+        const originalError = console.error;
+        const originalWarn = console.warn;
+
+        function addConsoleEntry(message, type = 'info') {
+            const entry = document.createElement('div');
+            entry.className = `console-entry ${type}`;
+            entry.textContent = `${new Date().toLocaleTimeString()} - ${message}`;
+            consoleOutput.appendChild(entry);
+            consoleOutput.scrollTop = consoleOutput.scrollHeight;
+        }
+
+        console.log = (...args) => {
+            originalLog(...args);
+            addConsoleEntry(args.join(' '), 'info');
+        };
+
+        console.error = (...args) => {
+            originalError(...args);
+            addConsoleEntry(args.join(' '), 'error');
+        };
+
+        console.warn = (...args) => {
+            originalWarn(...args);
+            addConsoleEntry(args.join(' '), 'warning');
+        };
+
+        // Initialize adapter
+        async function initAdapter() {
+            adapter = new MockDataAdapter();
+            console.log('MockDataAdapter instance created');
+        }
+
+        // Load data
+        window.loadData = async function() {
+            const datasetSelect = document.getElementById('datasetSelect');
+            const selectedDataset = datasetSelect.value;
+            
+            // Hide initial message
+            const initialMessage = document.getElementById('initialMessage');
+            if (initialMessage) {
+                initialMessage.style.display = 'none';
+            }
+            
+            try {
+                if (!adapter) {
+                    await initAdapter();
+                }
+
+                console.log(`Switching to dataset: ${selectedDataset}`);
+                const success = await adapter.switchDataset(selectedDataset);
+                
+                if (success) {
+                    console.log('✓ Data loaded successfully!');
+                    // Auto-show stats and equipment after loading
+                    await showStats();
+                    await showEquipment();
+                } else {
+                    console.error('Failed to load data');
+                }
+            } catch (error) {
+                console.error('Error loading data:', error.message);
+            }
+        };
+
+        // Show statistics
+        window.showStats = async function() {
+            try {
+                if (!adapter || !adapter.initialized) {
+                    console.warn('Please load data first');
+                    return;
+                }
+
+                const stats = await adapter.getBuildingStats();
+                
+                const statsContainer = document.getElementById('statsContainer');
+                statsContainer.innerHTML = `
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <h3>Dataset</h3>
+                            <div class="value">${stats.datasetName}</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Equipment</h3>
+                            <div class="value">${stats.equipmentCount.toLocaleString()}</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Points</h3>
+                            <div class="value">${stats.pointCount.toLocaleString()}</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Schedules</h3>
+                            <div class="value">${stats.scheduleCount.toLocaleString()}</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Histories</h3>
+                            <div class="value">${stats.historyCount.toLocaleString()}</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Tagged Components</h3>
+                            <div class="value">${stats.taggedComponentCount.toLocaleString()}</div>
+                        </div>
+                    </div>
+                `;
+
+                console.log('Statistics displayed');
+                console.log(`Equipment Types: ${stats.equipmentTypes.join(', ')}`);
+                console.log(`Points per Equipment: min=${stats.pointsPerEquipment.min}, max=${stats.pointsPerEquipment.max}, avg=${stats.pointsPerEquipment.avg}`);
+            } catch (error) {
+                console.error('Error displaying stats:', error.message);
+            }
+        };
+
+        // Show equipment
+        window.showEquipment = async function() {
+            try {
+                if (!adapter || !adapter.initialized) {
+                    console.warn('Please load data first');
+                    return;
+                }
+
+                const devices = await adapter.discoverDevices();
+                console.log(`Found ${devices.length} equipment devices`);
+
+                // Group by type
+                const byType = {};
+                devices.forEach(device => {
+                    if (!byType[device.type]) byType[device.type] = [];
+                    byType[device.type].push(device);
+                });
+
+                let html = '<div class="data-section"><h2>🔧 Equipment List</h2>';
+                
+                for (const [type, equipment] of Object.entries(byType)) {
+                    html += `<h3 style="margin-top: 20px; color: #667eea;">${type} (${equipment.length})</h3>`;
+                    html += '<div class="equipment-grid">';
+                    
+                    // Show first 20 of each type
+                    equipment.slice(0, 20).forEach(equip => {
+                        html += `
+                            <div class="equipment-card" onclick="showEquipmentPoints('${equip.id}', '${equip.name}')">
+                                <h4>${equip.name}</h4>
+                                <span class="type">${equip.type}</span>
+                                <div class="info">📍 ${equip.location}</div>
+                                <div class="info">📊 ${equip.pointCount} points</div>
+                                <div class="info"><span class="badge badge-${equip.status === 'ok' ? 'success' : 'warning'}">${equip.status.toUpperCase()}</span></div>
+                            </div>
+                        `;
+                    });
+                    
+                    html += '</div>';
+                    if (equipment.length > 20) {
+                        html += `<p style="color: #666; margin-top: 10px;">... and ${equipment.length - 20} more</p>`;
+                    }
+                }
+                
+                html += '</div>';
+                document.getElementById('dataContainer').innerHTML = html;
+                
+            } catch (error) {
+                console.error('Error displaying equipment:', error.message);
+            }
+        };
+
+        // Show equipment points
+        window.showEquipmentPoints = async function(equipmentId, equipmentName) {
+            try {
+                const points = await adapter.getPointsByEquipment(equipmentId);
+                console.log(`${equipmentName}: ${points.length} points`);
+
+                let html = `
+                    <div class="data-section">
+                        <h2>📍 Points for: ${equipmentName}</h2>
+                        <p style="color: #666; margin-bottom: 15px;">Total: ${points.length} points</p>
+                        <div class="points-list">
+                `;
+
+                points.forEach(point => {
+                    html += `
+                        <div class="point-item">
+                            <div>
+                                <div class="name">${point.name}</div>
+                                <div class="type">${point.type} ${point.unit ? `(${point.unit})` : ''}</div>
+                            </div>
+                            <div class="value">${point.displayValue !== null ? point.displayValue : 'N/A'}</div>
+                        </div>
+                    `;
+                });
+
+                html += '</div></div>';
+                document.getElementById('dataContainer').innerHTML = html;
+
+            } catch (error) {
+                console.error('Error displaying points:', error.message);
+            }
+        };
+
+        // Auto-load demo data on startup
+        console.log('🚀 Page loaded - Ready to test MockDataAdapter');
+        console.log('👉 Click "Load Data" button or select Real Niagara Data from dropdown');
+        console.log('📊 Real data contains: 83 equipment, 38,605 points, 15,266 schedules');
+        
+        // Make functions globally available
+        window.adapter = adapter;
+    </script>
+</body>
+</html>
+

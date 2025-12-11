@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quick Real Data Test</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 1200px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .card {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        h1 { color: #333; }
+        button {
+            padding: 12px 24px;
+            font-size: 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            margin: 5px;
+            font-weight: 600;
+        }
+        .btn-load { background: #4CAF50; color: white; }
+        .btn-show { background: #2196F3; color: white; }
+        button:hover { opacity: 0.9; }
+        #output { 
+            background: #f9f9f9; 
+            padding: 20px; 
+            border-radius: 6px;
+            margin-top: 20px;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
+        .status {
+            padding: 10px 15px;
+            border-radius: 6px;
+            margin: 10px 0;
+            font-weight: bold;
+        }
+        .status.loading { background: #fff3cd; color: #856404; }
+        .status.success { background: #d4edda; color: #155724; }
+        .status.error { background: #f8d7da; color: #721c24; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        th, td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background: #f0f0f0;
+            font-weight: 600;
+        }
+        .highlight {
+            background: #ffeb3b;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>🏢 Quick Real Data Test</h1>
+        <p>This page will load your <span class="highlight">REAL Niagara data</span> from site-profile-1765425942065.json</p>
+        
+        <div style="margin: 20px 0;">
+            <button class="btn-load" onclick="loadRealData()">🚀 Load Real Data (83 equip, 38k points)</button>
+            <button class="btn-show" onclick="showEquipment()" id="btnShowEquip" disabled>Show Equipment</button>
+            <button class="btn-show" onclick="showPoints()" id="btnShowPoints" disabled>Show Sample Points</button>
+        </div>
+
+        <div id="status"></div>
+        <div id="output"></div>
+    </div>
+
+    <div id="equipmentSection" class="card" style="display: none;">
+        <h2>Equipment List</h2>
+        <div id="equipmentList"></div>
+    </div>
+
+    <script type="module">
+        import MockDataAdapter from './src/adapters/MockDataAdapter.js';
+
+        let adapter = new MockDataAdapter();
+        let equipment = [];
+        
+        const statusDiv = document.getElementById('status');
+        const outputDiv = document.getElementById('output');
+
+        function setStatus(message, type = 'loading') {
+            statusDiv.innerHTML = `<div class="status ${type}">${message}</div>`;
+        }
+
+        function log(message) {
+            outputDiv.textContent += message + '\n';
+            console.log(message);
+        }
+
+        window.loadRealData = async function() {
+            try {
+                outputDiv.textContent = '';
+                setStatus('⏳ Loading real Niagara data...', 'loading');
+                log('Starting to load real data...');
+                
+                // Switch to real dataset
+                log('\n📂 Switching to real dataset: site-profile-1765425942065.json');
+                const success = await adapter.switchDataset('real');
+                
+                if (!success) {
+                    throw new Error('Failed to switch to real dataset');
+                }
+                
+                log('✅ Dataset switched successfully!');
+                
+                // Get statistics
+                log('\n📊 Loading statistics...');
+                const stats = await adapter.getBuildingStats();
+                
+                log(`\n✨ SUCCESS! Real data loaded:\n`);
+                log(`   📦 Equipment: ${stats.equipmentCount.toLocaleString()}`);
+                log(`   📍 Points: ${stats.pointCount.toLocaleString()}`);
+                log(`   📅 Schedules: ${stats.scheduleCount.toLocaleString()}`);
+                log(`   📈 Histories: ${stats.historyCount.toLocaleString()}`);
+                log(`   🏷️  Tagged Components: ${stats.taggedComponentCount.toLocaleString()}`);
+                
+                log(`\n🔧 Equipment Types Found:`);
+                Object.entries(stats.equipmentByType).forEach(([type, count]) => {
+                    log(`   - ${type}: ${count}`);
+                });
+                
+                log(`\n📊 Point Types:`);
+                Object.entries(stats.pointTypes).forEach(([type, count]) => {
+                    log(`   - ${type}: ${count}`);
+                });
+                
+                log(`\n✅ Points per equipment: min=${stats.pointsPerEquipment.min}, max=${stats.pointsPerEquipment.max}, avg=${stats.pointsPerEquipment.avg}`);
+                
+                // Load equipment
+                equipment = await adapter.discoverDevices();
+                log(`\n✅ Discovered ${equipment.length} equipment devices`);
+                
+                setStatus('✅ Real data loaded successfully! Click "Show Equipment" to browse.', 'success');
+                
+                // Enable buttons
+                document.getElementById('btnShowEquip').disabled = false;
+                document.getElementById('btnShowPoints').disabled = false;
+                
+            } catch (error) {
+                log(`\n❌ ERROR: ${error.message}`);
+                setStatus('❌ Error loading data: ' + error.message, 'error');
+                console.error('Full error:', error);
+            }
+        };
+
+        window.showEquipment = async function() {
+            const section = document.getElementById('equipmentSection');
+            const list = document.getElementById('equipmentList');
+            
+            if (equipment.length === 0) {
+                alert('Please load data first!');
+                return;
+            }
+            
+            // Group by type
+            const byType = {};
+            equipment.forEach(e => {
+                if (!byType[e.type]) byType[e.type] = [];
+                byType[e.type].push(e);
+            });
+            
+            let html = '';
+            for (const [type, items] of Object.entries(byType)) {
+                html += `<h3>${type} (${items.length})</h3><table>`;
+                html += '<tr><th>Name</th><th>Location</th><th>Points</th><th>Path</th></tr>';
+                
+                items.slice(0, 10).forEach(item => {
+                    html += `<tr>
+                        <td><strong>${item.name}</strong></td>
+                        <td>${item.location}</td>
+                        <td>${item.pointCount}</td>
+                        <td style="font-size: 11px; color: #666;">${item.ord}</td>
+                    </tr>`;
+                });
+                
+                if (items.length > 10) {
+                    html += `<tr><td colspan="4"><em>... and ${items.length - 10} more</em></td></tr>`;
+                }
+                html += '</table>';
+            }
+            
+            list.innerHTML = html;
+            section.style.display = 'block';
+            section.scrollIntoView({ behavior: 'smooth' });
+        };
+
+        window.showPoints = async function() {
+            if (equipment.length === 0) {
+                alert('Please load data first!');
+                return;
+            }
+            
+            // Get points from first few equipment
+            log('\n\n📍 Sample Points from Equipment:\n');
+            
+            for (let i = 0; i < Math.min(5, equipment.length); i++) {
+                const equip = equipment[i];
+                const points = await adapter.getPointsByEquipment(equip.id);
+                
+                log(`\n${equip.name} (${equip.type}) - ${points.length} points:`);
+                points.slice(0, 5).forEach(point => {
+                    log(`   - ${point.name}: ${point.displayValue} [${point.type}]`);
+                });
+                if (points.length > 5) {
+                    log(`   ... and ${points.length - 5} more points`);
+                }
+            }
+        };
+
+        // Log initial state
+        log('🚀 Page ready! Click "Load Real Data" to begin.');
+        log('\nFile to load: /mock-data/site-profile-1765425942065.json');
+        log('Expected: 83 equipment, 38,605 points\n');
+    </script>
+</body>
+</html>
+
