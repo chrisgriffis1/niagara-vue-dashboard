@@ -3,11 +3,19 @@
  * 
  * Saves/loads dashboard state to:
  * 1. localStorage (always available, immediate)
- * 2. Niagara station JsonHelper (if configured at /JsonHelper)
+ * 2. Niagara station JsonHelper program at /JsonHelper
+ * 
+ * JsonHelper slots:
+ * - operation: "save" or "load"
+ * - dataKey: file identifier
+ * - jsonData: input data for save
+ * - loadedData: output data from load
+ * - execute: Action to trigger
  */
 
 const STORAGE_KEY = 'niagaraDashboardState'
 const JSON_HELPER_ORD = 'station:|slot:/JsonHelper'
+const DATA_KEY = 'dashboard_state'
 
 /**
  * Save dashboard state to localStorage (always works)
@@ -21,7 +29,6 @@ export function cacheDashboardState(state) {
       savedAt: new Date().toISOString()
     })
     window.localStorage.setItem(STORAGE_KEY, payload)
-    console.log('💾 Dashboard state saved to localStorage')
   } catch (error) {
     console.warn('Failed to save to localStorage:', error)
   }
@@ -36,10 +43,7 @@ export function loadCachedDashboardState() {
   try {
     const payload = window.localStorage.getItem(STORAGE_KEY)
     if (!payload) return null
-    
-    const state = JSON.parse(payload)
-    console.log('📦 Dashboard state loaded from localStorage')
-    return state
+    return JSON.parse(payload)
   } catch (error) {
     console.warn('Failed to load from localStorage:', error)
     return null
@@ -47,7 +51,7 @@ export function loadCachedDashboardState() {
 }
 
 /**
- * Check if JsonHelper is available on the station
+ * Get JsonHelper component from station
  */
 async function _getJsonHelper() {
   if (typeof window === 'undefined' || !window.baja) {
@@ -56,21 +60,16 @@ async function _getJsonHelper() {
   
   try {
     const baja = window.baja
-    console.log('🔍 Looking for JsonHelper at:', JSON_HELPER_ORD)
-    
     const helper = await baja.Ord.make(JSON_HELPER_ORD).get()
     
     if (!helper) {
-      console.log('⚠️ JsonHelper not found')
+      console.warn('JsonHelper not found at', JSON_HELPER_ORD)
       return null
     }
     
-    // Check if it's a valid component with expected structure
-    console.log('✓ JsonHelper found, type:', helper.getType ? helper.getType().toString() : 'unknown')
-    
     return { baja, helper }
   } catch (error) {
-    console.warn('⚠️ Error accessing JsonHelper:', error.message)
+    console.warn('Error accessing JsonHelper:', error.message)
     return null
   }
 }
@@ -79,12 +78,12 @@ async function _getJsonHelper() {
  * Save state to Niagara station via JsonHelper
  */
 export async function saveStateToStation(state) {
-  // Always save to localStorage first (reliable)
+  // Always save to localStorage first
   cacheDashboardState(state)
   
   const ctx = await _getJsonHelper()
   if (!ctx) {
-    console.log('💾 Saved to localStorage only (JsonHelper not available)')
+    console.log('💾 Saved to localStorage (JsonHelper not available)')
     return false
   }
   
@@ -94,61 +93,90 @@ export async function saveStateToStation(state) {
     const payload = JSON.stringify(state)
     console.log('💾 Saving to station via JsonHelper...')
     
-    // Try to set properties on the JsonHelper
-    // The exact property names depend on how JsonHelper is configured
-    // Common patterns: 'data', 'jsonData', 'input', 'value'
+    // Set the properties using BString
+    const BString = baja.BString || { make: (v) => v }
     
-    const possibleDataSlots = ['jsonData', 'data', 'input', 'value', 'content']
-    const possibleKeySlots = ['dataKey', 'key', 'filename', 'name']
-    
-    let dataSlotFound = false
-    
-    // Try to find and set the data slot
-    for (const slotName of possibleDataSlots) {
+    // Set operation to "save"
+    await new Promise((resolve, reject) => {
       try {
-        // Check if slot exists before setting
-        const slots = helper.getSlots ? helper.getSlots() : null
-        if (slots) {
-          const slot = slots.toArray().find(s => s.getName && s.getName() === slotName)
-          if (slot) {
-            console.log(`  Setting ${slotName}...`)
-            helper.set(slotName, payload)
-            dataSlotFound = true
-            break
+        helper.set({ slot: 'operation', value: BString.make('save') })
+        resolve()
+      } catch (e) {
+        // Try alternative method
+        try {
+          helper.set('operation', BString.make('save'))
+          resolve()
+        } catch (e2) {
+          reject(e2)
+        }
+      }
+    })
+    
+    // Set dataKey
+    await new Promise((resolve, reject) => {
+      try {
+        helper.set({ slot: 'dataKey', value: BString.make(DATA_KEY) })
+        resolve()
+      } catch (e) {
+        try {
+          helper.set('dataKey', BString.make(DATA_KEY))
+          resolve()
+        } catch (e2) {
+          reject(e2)
+        }
+      }
+    })
+    
+    // Set jsonData
+    await new Promise((resolve, reject) => {
+      try {
+        helper.set({ slot: 'jsonData', value: BString.make(payload) })
+        resolve()
+      } catch (e) {
+        try {
+          helper.set('jsonData', BString.make(payload))
+          resolve()
+        } catch (e2) {
+          reject(e2)
+        }
+      }
+    })
+    
+    // Execute the action
+    console.log('  Executing save action...')
+    await new Promise((resolve, reject) => {
+      try {
+        // Try invoke with action name
+        if (typeof helper.invoke === 'function') {
+          helper.invoke({ slot: 'execute' }).then(resolve).catch(reject)
+        } else if (typeof helper.execute === 'function') {
+          helper.execute()
+          resolve()
+        } else {
+          // Try to find and invoke the execute action
+          const slots = helper.getSlots()
+          if (slots) {
+            const executeSlot = slots.get('execute')
+            if (executeSlot) {
+              helper.invoke(executeSlot).then(resolve).catch(reject)
+            } else {
+              reject(new Error('execute action not found'))
+            }
+          } else {
+            reject(new Error('cannot access slots'))
           }
         }
       } catch (e) {
-        // Slot doesn't exist, try next
+        reject(e)
       }
-    }
+    })
     
-    if (!dataSlotFound) {
-      console.log('⚠️ Could not find data slot on JsonHelper')
-      return false
-    }
-    
-    // Try to trigger the save action
-    const possibleActions = ['save', 'execute', 'run', 'write', 'commit']
-    
-    for (const actionName of possibleActions) {
-      try {
-        if (typeof helper[actionName] === 'function') {
-          console.log(`  Calling ${actionName}()...`)
-          await helper[actionName]()
-          console.log('✓ Saved to station')
-          return true
-        }
-      } catch (e) {
-        // Action doesn't exist or failed, try next
-      }
-    }
-    
-    // If no explicit action, the set might have been enough
-    console.log('✓ Data written to JsonHelper (no action required)')
+    console.log('✓ Saved to station')
     return true
     
   } catch (error) {
     console.warn('⚠️ Failed to save to station:', error.message)
+    console.log('💾 Data is still saved in localStorage')
     return false
   }
 }
@@ -157,7 +185,7 @@ export async function saveStateToStation(state) {
  * Load state from Niagara station via JsonHelper
  */
 export async function loadStateFromStation() {
-  // Always try localStorage first
+  // Always get localStorage as fallback
   const cachedState = loadCachedDashboardState()
   
   const ctx = await _getJsonHelper()
@@ -170,42 +198,82 @@ export async function loadStateFromStation() {
   try {
     console.log('📦 Loading from station via JsonHelper...')
     
-    // Try to trigger load action first
-    const possibleLoadActions = ['load', 'read', 'get', 'fetch']
+    const BString = baja.BString || { make: (v) => v }
     
-    for (const actionName of possibleLoadActions) {
+    // Set operation to "load"
+    await new Promise((resolve, reject) => {
       try {
-        if (typeof helper[actionName] === 'function') {
-          console.log(`  Calling ${actionName}()...`)
-          await helper[actionName]()
-          break
-        }
+        helper.set({ slot: 'operation', value: BString.make('load') })
+        resolve()
       } catch (e) {
-        // Action doesn't exist, try next
+        try {
+          helper.set('operation', BString.make('load'))
+          resolve()
+        } catch (e2) {
+          reject(e2)
+        }
       }
-    }
+    })
     
-    // Try to read the data
-    const possibleOutputSlots = ['loadedData', 'output', 'result', 'data', 'jsonData', 'value']
-    
-    for (const slotName of possibleOutputSlots) {
+    // Set dataKey
+    await new Promise((resolve, reject) => {
       try {
-        const value = helper.get(slotName)
-        if (value) {
-          const str = typeof value.toString === 'function' ? value.toString() : String(value)
-          if (str && str.length > 0 && str !== 'null') {
-            console.log(`  Found data in ${slotName}`)
-            const state = JSON.parse(str)
-            console.log('✓ Loaded from station')
-            return state
+        helper.set({ slot: 'dataKey', value: BString.make(DATA_KEY) })
+        resolve()
+      } catch (e) {
+        try {
+          helper.set('dataKey', BString.make(DATA_KEY))
+          resolve()
+        } catch (e2) {
+          reject(e2)
+        }
+      }
+    })
+    
+    // Execute the load action
+    console.log('  Executing load action...')
+    await new Promise((resolve, reject) => {
+      try {
+        if (typeof helper.invoke === 'function') {
+          helper.invoke({ slot: 'execute' }).then(resolve).catch(reject)
+        } else if (typeof helper.execute === 'function') {
+          helper.execute()
+          resolve()
+        } else {
+          const slots = helper.getSlots()
+          if (slots) {
+            const executeSlot = slots.get('execute')
+            if (executeSlot) {
+              helper.invoke(executeSlot).then(resolve).catch(reject)
+            } else {
+              reject(new Error('execute action not found'))
+            }
+          } else {
+            reject(new Error('cannot access slots'))
           }
         }
       } catch (e) {
-        // Slot doesn't exist or can't be read, try next
+        reject(e)
+      }
+    })
+    
+    // Wait a moment for the async task to complete
+    await new Promise(resolve => setTimeout(resolve, 500))
+    
+    // Read the loadedData property
+    const loadedData = helper.get('loadedData')
+    if (loadedData) {
+      const str = typeof loadedData.getString === 'function' 
+        ? loadedData.getString() 
+        : loadedData.toString()
+      
+      if (str && str.length > 0 && str !== '[]' && str !== '{}') {
+        console.log('✓ Loaded from station')
+        return JSON.parse(str)
       }
     }
     
-    console.log('⚠️ No data found in JsonHelper, using localStorage')
+    console.log('⚠️ No data in loadedData, using localStorage')
     return cachedState
     
   } catch (error) {
