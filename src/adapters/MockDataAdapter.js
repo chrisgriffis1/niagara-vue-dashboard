@@ -22,7 +22,7 @@ class MockDataAdapter {
     // Dataset configuration
     this.availableDatasets = [
       { id: 'demo', name: 'Demo Data', file: '/mock-data/demo-site-profile.json.json' },
-      { id: 'real', name: 'Real Niagara Data (83 equip, 3.3k points)', file: '/mock-data/site-profile-1765432578295.json' }
+      { id: 'real', name: 'Real Niagara Data (with histories)', file: '/mock-data/firstTryNeedsWork.json' }
     ];
     this.currentDataset = 'demo'; // Default to demo, can be switched
   }
