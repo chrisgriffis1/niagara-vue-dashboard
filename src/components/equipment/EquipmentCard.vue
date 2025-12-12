@@ -164,9 +164,7 @@ const pointCountLabel = computed(() => {
   return 'Tap to load'
 })
 
-const showToggleButton = computed(() => {
-  return props.equipment.pointCount > 0 || pointsLoaded.value || allPointsCount.value > 0
-})
+const showToggleButton = computed(() => true)
 
 // Get trendable points (numeric types)
 const trendablePoints = computed(() => {

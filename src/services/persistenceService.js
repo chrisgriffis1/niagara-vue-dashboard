@@ -47,19 +47,32 @@ async function _invokeJsonHelper(data) {
   const baja = await _ensureBaja()
   const helperOrd = 'station:|slot:/JsonHelper'
   const helper = await baja.Ord.make(helperOrd).get()
-  if (!helper) {
-    throw new Error('JsonHelper cannot be found on this station')
+  if (!helper || typeof helper.get !== 'function' || typeof helper.set !== 'function') {
+    throw new Error('JsonHelper is not available for persistence')
   }
 
   const bstring = baja.BString && baja.BString.make ? baja.BString.make : (value) => value
-  helper.set('operation', bstring(data.operation))
-  helper.set('dataKey', bstring(DATA_KEY))
-  helper.set('jsonData', bstring(data.jsonData || ''))
+  const setProp = (name, value) => {
+    try {
+      helper.set(name, bstring(value))
+    } catch (e) {
+      // Some helper versions require slots to exist first
+      if (helper.getSlots && helper.getSlots().slotName(name)) {
+        helper.set(name, bstring(value))
+      }
+    }
+  }
+
+  setProp('operation', data.operation)
+  setProp('dataKey', DATA_KEY)
+  setProp('jsonData', data.jsonData || '')
 
   if (typeof helper.invoke === 'function') {
     await helper.invoke()
   } else if (typeof helper.onExecute === 'function') {
     helper.onExecute()
+  } else if (typeof helper.submit === 'function') {
+    helper.submit()
   } else {
     throw new Error('JsonHelper cannot be executed from JavaScript')
   }
