@@ -524,7 +524,9 @@ class NiagaraBQLAdapter {
       return [];
     }
 
-    const startDate = timeRange.start || new Date(Date.now() - 24 * 60 * 60 * 1000);
+    // Default to 1 year lookback for COV histories which may have sparse data
+    // COV = Change of Value - only records when significant change happens
+    const startDate = timeRange.start || new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
     const endDate = timeRange.end || new Date();
 
     return this._queryHistory(historyId, startDate, endDate);
@@ -766,10 +768,16 @@ class NiagaraBQLAdapter {
         historyOrd = "history:" + historyOrd;
       }
 
+      console.log(`  📊 Querying history: ${historyOrd}`);
+      console.log(`     Time range: ${startDate.toISOString()} to ${endDate.toISOString()}`);
+
       const history = await baja.Ord.make(historyOrd).get();
       if (!history) {
+        console.log(`  ❌ History object not found for: ${historyOrd}`);
         return [];
       }
+
+      console.log(`  ✓ History object retrieved, querying records...`);
 
       const dataPoints = [];
       const startMillis = startDate.getTime();
@@ -777,14 +785,37 @@ class NiagaraBQLAdapter {
 
       return new Promise((resolve, reject) => {
         const self = this;
+        let recordCount = 0;
+        let filteredCount = 0;
+        let firstRecordTime = null;
+        let lastRecordTime = null;
+        
         history.cursor({
           each: function(record) {
+            recordCount++;
+            
+            if (recordCount === 1) {
+              console.log(`     Processing first history record...`);
+            }
+            if (recordCount % 100 === 0) {
+              console.log(`     Processed ${recordCount} records...`);
+            }
+            
             try {
               const ts = record.get('timestamp');
               const tsMillis = ts.getMillis();
+              const recordDate = new Date(tsMillis);
+              
+              // Track first and last record times
+              if (!firstRecordTime) firstRecordTime = recordDate;
+              lastRecordTime = recordDate;
               
               // Filter by date range
               if (tsMillis < startMillis || tsMillis > endMillis) {
+                filteredCount++;
+                if (filteredCount <= 3) {
+                  console.log(`     Filtered record ${recordCount}: ${recordDate.toISOString()} (outside range)`);
+                }
                 return;
               }
 
@@ -806,12 +837,16 @@ class NiagaraBQLAdapter {
           after: function() {
             // Sort by timestamp
             dataPoints.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+            console.log(`  ✓ History query complete: Found ${dataPoints.length} records (checked ${recordCount} total, filtered ${filteredCount})`);
+            if (firstRecordTime && lastRecordTime) {
+              console.log(`     History data spans: ${firstRecordTime.toISOString()} to ${lastRecordTime.toISOString()}`);
+            }
             resolve(dataPoints);
           }
         });
       });
     } catch (e) {
-      console.error(`Error querying history for ${historyId}:`, e);
+      console.error(`❌ Error querying history for ${historyId}:`, e);
       return [];
     }
   }

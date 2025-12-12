@@ -261,8 +261,9 @@ const loadMiniChartForPoint = async (point) => {
     // Ensure adapter is initialized (deviceStore handles this)
     await deviceStore.initializeAdapter()
     const now = new Date()
-    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000)
-    miniChartData.value = await currentAdapter.getHistoricalData(point.id, { start: oneHourAgo, end: now })
+    // Use 90 days lookback for COV histories which may have sparse data
+    const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
+    miniChartData.value = await currentAdapter.getHistoricalData(point.id, { start: ninetyDaysAgo, end: now })
   } catch (error) {
     console.error('Failed to load mini-chart for point:', error)
   } finally {

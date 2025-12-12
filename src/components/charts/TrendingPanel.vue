@@ -209,10 +209,10 @@ const deviceStore = useDeviceStore()
 const adapter = computed(() => deviceStore.adapter || deviceStore.getAdapter())
 
 const viewMode = ref('chart')
-// Default to 24 hours
+// Default to 90 days for COV histories which may have sparse data
 const now = new Date()
-const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000)
-const timeRange = ref({ start: yesterday, end: now })
+const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
+const timeRange = ref({ start: ninetyDaysAgo, end: now })
 const selectedPoints = ref([])
 const historicalData = ref({})
 const equipmentPoints = ref({})
