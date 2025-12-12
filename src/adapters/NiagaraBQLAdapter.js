@@ -52,6 +52,102 @@ class NiagaraBQLAdapter {
   }
   
   /**
+   * FULL CACHE: Save everything for instant load (equipment, points, history data)
+   * Called in background when user is idle
+   * @private
+   */
+  _saveFullCache() {
+    try {
+      // Build full cache with loaded points
+      const fullCache = {
+        timestamp: Date.now(),
+        version: 2, // Version for cache format
+        equipment: this.equipment.map(e => ({
+          ...e,
+          cachedPoints: this.equipmentPointsMap.get(e.id) || []
+        })),
+        alarms: this.alarms || [],
+        zones: this.zones || [],
+        historyIdEntries: Array.from(this.historyIdCache.entries())
+      };
+      
+      localStorage.setItem('niagara-full-cache', JSON.stringify(fullCache));
+      console.log(`💾 FULL CACHE saved: ${this.equipment.length} equipment, ${this.historyIdCache.size} history IDs`);
+      return true;
+    } catch (e) {
+      // localStorage might be full - try to clear old data
+      console.warn('⚠️ Full cache save failed:', e.message);
+      this._clearOldHistoryData();
+      return false;
+    }
+  }
+  
+  /**
+   * Load full cache for instant startup
+   * @private
+   */
+  _loadFullCache() {
+    try {
+      const cached = localStorage.getItem('niagara-full-cache');
+      if (!cached) return null;
+      
+      const data = JSON.parse(cached);
+      if (!data.version || data.version < 2) {
+        console.log('📦 Cache format outdated, refreshing...');
+        return null;
+      }
+      
+      // Cache expires after 8 hours
+      const cacheAge = Date.now() - data.timestamp;
+      if (cacheAge > 8 * 60 * 60 * 1000) {
+        console.log('📦 Full cache expired (>8 hours), refreshing...');
+        return null;
+      }
+      
+      const cacheAgeMinutes = Math.round(cacheAge / 60000);
+      console.log(`📦 Full cache age: ${cacheAgeMinutes} minutes`);
+      return data;
+    } catch (e) {
+      return null;
+    }
+  }
+  
+  /**
+   * Clear old history data from localStorage to free space
+   * @private
+   */
+  _clearOldHistoryData() {
+    try {
+      const keysToRemove = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('niagara-history-data-')) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach(key => localStorage.removeItem(key));
+      console.log(`🗑️ Cleared ${keysToRemove.length} old history caches`);
+    } catch (e) {}
+  }
+  
+  /**
+   * Schedule background caching when user is idle
+   * @private
+   */
+  _scheduleBackgroundCache() {
+    // Use requestIdleCallback if available, otherwise setTimeout
+    const scheduleIdle = window.requestIdleCallback || ((cb) => setTimeout(cb, 5000));
+    
+    scheduleIdle(() => {
+      // Only save if we have substantial data
+      if (this.equipment.length > 0 && this.historyIdCache.size > 0) {
+        console.log('💾 Background caching (user idle)...');
+        this._saveFullCache();
+      }
+    }, { timeout: 30000 }); // Max wait 30 seconds
+  }
+  
+  /**
    * Load cached data from localStorage
    * @private
    */
@@ -83,12 +179,17 @@ class NiagaraBQLAdapter {
   clearCache() {
     console.log('🗑️ Clearing all cached data...');
     localStorage.removeItem(this.cacheKey);
-    localStorage.removeItem('niagara-history-cache');
+    localStorage.removeItem('niagara-full-cache');
+    localStorage.removeItem('niagara-history-id-cache');
     localStorage.removeItem('niagara-force-refresh');
+    this._clearOldHistoryData();
     this.equipment = [];
     this.points = [];
     this.alarms = [];
     this.zones = [];
+    this.historyIdCache.clear();
+    this.historyCache.clear();
+    this.equipmentPointsMap.clear();
     this.initialized = false;
     console.log('✓ Cache cleared - reload page to fetch fresh data');
   }
@@ -243,15 +344,70 @@ class NiagaraBQLAdapter {
       if (forceRefresh) {
         console.log('🔄 Force refresh requested - clearing ALL caches');
         window.localStorage.removeItem('niagara-force-refresh');
-        window.localStorage.removeItem(this.cacheKey);
-        window.localStorage.removeItem('niagara-history-id-cache');
-        this.historyIdCache.clear();
+        this.clearCache();
       }
       
-      // Try to load from cache first for instant startup
+      // TIER 1: Try FULL cache first (has everything - instant load!)
+      const fullCache = this._loadFullCache();
+      if (fullCache && fullCache.equipment && fullCache.equipment.length > 0 && !forceRefresh) {
+        console.log('⚡⚡ INSTANT LOAD from FULL CACHE!');
+        
+        // Load equipment with pre-cached points
+        this.equipment = fullCache.equipment.map(e => {
+          const { cachedPoints, ...equipData } = e;
+          // Restore cached points to map
+          if (cachedPoints && cachedPoints.length > 0) {
+            this.equipmentPointsMap.set(equipData.id, cachedPoints);
+            cachedPoints.forEach(p => {
+              if (p.id) this.pointsMap.set(p.id, p);
+            });
+          }
+          return equipData;
+        });
+        this.alarms = fullCache.alarms || [];
+        this.zones = fullCache.zones || [];
+        
+        // Restore history ID cache
+        if (fullCache.historyIdEntries) {
+          this.historyIdCache = new Map(fullCache.historyIdEntries);
+        }
+        
+        const cachedPointCount = Array.from(this.equipmentPointsMap.values()).reduce((sum, arr) => sum + arr.length, 0);
+        console.log(`✓ FULL CACHE: ${this.equipment.length} equipment, ${cachedPointCount} points, ${this.alarms.length} alarms, ${this.historyIdCache.size} history IDs`);
+        
+        // Mark as initialized - UI can render immediately!
+        this.initialized = true;
+        
+        // Set up auto-refresh for alarms every 10 minutes
+        this._setupAlarmAutoRefresh();
+        
+        // Background refresh for LIVE data (non-blocking)
+        setTimeout(async () => {
+          try {
+            console.log('🔄 Background: Refreshing live data...');
+            
+            // Refresh alarms silently
+            await this._startAlarmMonitoring();
+            console.log(`🔔 Alarms refreshed: ${this.alarms.length}`);
+            
+            // Start live subscriptions
+            await this._startLiveSubscriptions();
+            
+            // Save updated cache
+            this._saveToCache();
+            this._scheduleBackgroundCache(); // Save full cache when idle
+          } catch (e) {
+            console.warn('Background refresh error:', e);
+          }
+        }, 2000); // Let UI render first
+        
+        return true;
+      }
+      
+      // TIER 2: Try basic cache (equipment + alarms)
       const cached = this._loadFromCache();
       if (cached && cached.equipment && cached.equipment.length > 0 && !forceRefresh) {
-        console.log('⚡ Using cached data - INSTANT LOAD!');
+        console.log('⚡ Using basic cache - FAST LOAD!');
         this.equipment = cached.equipment;
         this.alarms = cached.alarms || [];
         this.zones = cached.zones || [];
@@ -259,11 +415,6 @@ class NiagaraBQLAdapter {
         // Debug: check how many equipment have zones in cache
         const equipWithZones = this.equipment.filter(e => e.zone).length;
         console.log(`✓ Loaded ${this.equipment.length} equipment, ${this.alarms.length} alarms, ${this.zones.length} zones from cache`);
-        console.log(`📊 DEBUG: ${equipWithZones}/${this.equipment.length} equipment have zone property in cache`);
-        if (equipWithZones > 0) {
-          const sample = this.equipment.find(e => e.zone);
-          console.log(`📊 DEBUG: Sample equipment with zone: ${sample?.id} → zone="${sample?.zone}", location="${sample?.location}"`);
-        }
 
         // Mark as initialized immediately for instant UI
         this.initialized = true;
@@ -295,7 +446,7 @@ class NiagaraBQLAdapter {
         // Set up auto-refresh for alarms every 10 minutes
         this._setupAlarmAutoRefresh();
 
-        // ALWAYS run background refresh to get fresh data
+        // Background refresh to build full cache
         console.log('🔄 Starting background data refresh...');
         setTimeout(async () => {
           try {
@@ -313,7 +464,10 @@ class NiagaraBQLAdapter {
             await this._backgroundLoadHistoryPoints();
             console.log('🔄 History points refreshed');
 
-            console.log('✓ Background refresh complete - reload page to see changes');
+            // Schedule full cache save when user is idle
+            this._scheduleBackgroundCache();
+
+            console.log('✓ Background refresh complete');
           } catch (e) {
             console.warn('Background refresh error:', e);
           }
@@ -366,7 +520,10 @@ class NiagaraBQLAdapter {
       this._saveToCache();
       
       // Start background loading of points with history (non-blocking)
-      this._backgroundLoadHistoryPoints().catch(err => {
+      this._backgroundLoadHistoryPoints().then(() => {
+        // After background loading completes, schedule full cache save
+        this._scheduleBackgroundCache();
+      }).catch(err => {
         console.warn('⚠️ Background history loading failed:', err)
       })
       
@@ -377,6 +534,7 @@ class NiagaraBQLAdapter {
       console.log(`  📦 Equipment: ${this.equipment.length}`);
       console.log(`  📍 With locations: ${locCount}`);
       console.log(`  📊 Points: Load on demand + background`);
+      console.log(`  💾 Full cache will save when user is idle`);
       
       return true;
     } catch (error) {
