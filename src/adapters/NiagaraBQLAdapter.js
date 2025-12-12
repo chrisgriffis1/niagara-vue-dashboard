@@ -544,9 +544,12 @@ class NiagaraBQLAdapter {
       unit: point.unit,
       value: point.value,
       ord: point.ord,
+      slotPath: point.slotPath, // CRITICAL: needed for history lookup
+      equipmentId: point.equipmentId,
       displayValue: this._formatPointValue(point),
       trendable: point.trendable,
       hasHistory: !!point.hasHistory,
+      historyId: point.historyId, // Cache history ID if already found
       priority: point.priority || 'normal'
     }));
   }
@@ -642,11 +645,17 @@ class NiagaraBQLAdapter {
           limit: 500, // Limit per equipment
           each: function(record) {
             try {
-              const slotPath = record.get('slotPath')?.toString() || '';
+              let slotPath = record.get('slotPath')?.toString() || '';
               const displayName = record.get('displayName')?.toString() || '';
               const name = record.get('name')?.toString() || '';
               
               if (!slotPath) return;
+              
+              // Clean slotPath for history lookup
+              slotPath = slotPath.replace(/^slot:/, '').trim();
+              if (!slotPath.startsWith('/')) {
+                slotPath = '/' + slotPath;
+              }
               
               // Parse value and status
               let outValue = null;
@@ -794,15 +803,21 @@ class NiagaraBQLAdapter {
       console.warn(`Point not found: ${pointIdOrObj}`);
       return [];
     }
+    
+    console.log(`📈 Getting history for: ${point.name || point.id}`);
+    console.log(`   slotPath: ${point.slotPath}`);
+    console.log(`   equipmentId: ${point.equipmentId}`);
 
     // Find history ID for this point
     // History IDs are typically the point's path relative to station root
     const historyId = point.historyId || await this._findHistoryId(point);
     
     if (!historyId) {
-      console.log(`No history found for point: ${point.id || pointIdOrObj}`);
+      console.log(`⚠️ No history config found for: ${point.name || point.id}`);
       return [];
     }
+    
+    console.log(`   historyId: ${historyId}`);
 
     // Default to 1 year lookback for COV histories which may have sparse data
     // COV = Change of Value - only records when significant change happens
