@@ -531,7 +531,8 @@ class NiagaraBQLAdapter {
   }
 
   /**
-   * Find history ID for a point
+   * Find history ID for a point using BQL query on HistoryConfig
+   * Based on LivePoints.html pattern - queries history:HistoryConfig
    * @private
    */
   async _findHistoryId(point) {
@@ -541,33 +542,55 @@ class NiagaraBQLAdapter {
     }
     
     try {
-      // Clean slotPath - remove "slot:" prefix if present
-      let cleanSlotPath = point.slotPath.toString().trim().replace(/^slot:/, '');
-      if (!cleanSlotPath.startsWith('/')) {
-        cleanSlotPath = '/' + cleanSlotPath;
+      // Extract equipment name and point name from slotPath
+      // Format: /Drivers/BacnetNetwork/HP75/points/Monitor/no_OaTemp
+      const pathParts = point.slotPath.toString().split('/').filter(p => p);
+      if (pathParts.length < 3) {
+        return null;
       }
       
-      // Construct correct ORD format: station:|slot:/path
-      const pointOrd = 'station:|slot:' + cleanSlotPath;
+      const equipmentName = point.equipmentId || pathParts[2]; // e.g., "HP75"
+      const pointName = point.name || pathParts[pathParts.length - 1]; // e.g., "no_OaTemp"
       
-      // Try to find history config for this point
-      // History configs are typically at: pointPath/history
-      const pointComponent = await baja.Ord.make(pointOrd).get();
-      const historySlot = pointComponent.getSlots().slotName(/^history$/i).first();
+      // Escape single quotes for BQL (SQL-style: ' becomes '')
+      const escapedEquipment = equipmentName.replace(/'/g, "''");
+      const escapedPointName = pointName.replace(/'/g, "''");
       
-      if (historySlot) {
-        const history = pointComponent.get(historySlot);
-        if (history) {
-          const id = history.get('id');
-          if (id) {
-            return id.toString();
+      // Use BQL to find HistoryConfig - same pattern as LivePoints.html line 11785
+      // Query for histories under this equipment that match the point name
+      const bqlQuery = `select id, slotPath from history:HistoryConfig where slotPath like '%/${escapedEquipment}/%' and slotPath like '%${escapedPointName}%'`;
+      const bqlOrd = `station:|slot:/Drivers|bql:${bqlQuery}`;
+      
+      const table = await baja.Ord.make(bqlOrd).get();
+      if (!table || !table.cursor) {
+        return null;
+      }
+      
+      // Find matching history
+      return new Promise((resolve) => {
+        let foundId = null;
+        const self = this;
+        
+        table.cursor({
+          each: function(record) {
+            if (foundId) return; // Already found
+            
+            try {
+              const id = record.get('id');
+              const slotPath = record.get('slotPath');
+              
+              if (id) {
+                foundId = id.toString();
+              }
+            } catch (e) {
+              // Skip invalid record
+            }
+          },
+          after: function() {
+            resolve(foundId);
           }
-        }
-      }
-      
-      // Fallback: construct history ID from slotPath
-      // Use clean path without "slot:" prefix
-      return cleanSlotPath;
+        });
+      });
     } catch (e) {
       console.warn(`Could not find history ID for ${point.id}:`, e);
       return null;
