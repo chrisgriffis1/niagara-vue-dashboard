@@ -170,6 +170,17 @@ class NiagaraBQLAdapter {
     this._buildEquipmentPointMapping();
   }
 
+  // Point device rules - control points that act like equipment
+  static POINT_DEVICE_RULES = {
+    "Exhaust Fan": { patterns: [/exhfan/i, /exfan/i, /exhaustfan/i] },
+    "Freezer": { patterns: [/freezer/i] },
+    "Fridge": { patterns: [/fridge/i, /refrigerator/i] },
+    "Heater": { patterns: [/heater/i, /wallheater/i, /unitheater/i] },
+    "Cooling Tower": { patterns: [/towerplant/i, /coolingtower/i, /tower/i] },
+    "Water Sensor": { patterns: [/h20/i, /watersensor/i, /dhw/i, /dcw/i] },
+    "Pressure Sensor": { patterns: [/psi/i, /pressure/i] }
+  };
+
   /**
    * Discover all equipment using BQL query
    * @private
@@ -181,99 +192,73 @@ class NiagaraBQLAdapter {
     }
     
     console.log('🔍 Querying equipment via BQL...');
+    
+    // First discover BACnet devices
     const bql = "station:|slot:/Drivers/BacnetNetwork|bql:select slotPath, displayName, name from bacnet:BacnetDevice";
-    console.log('📝 BQL:', bql);
     
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         reject(new Error('Equipment discovery timeout (30s)'));
       }, 30000);
       
-      console.log('⏳ Waiting for BQL response...');
       baja.Ord.make(bql).get().then(table => {
         clearTimeout(timeout);
         this.equipment = [];
         
         console.log('✓ BQL query completed, processing results...');
-        console.log('📊 Table type:', typeof table);
-        console.log('📊 Table cursor type:', typeof table.cursor);
         
         let count = 0;
         let cursorStarted = false;
         
-        // Add a timeout to detect if cursor never starts
         const cursorTimeout = setTimeout(() => {
           if (!cursorStarted) {
-            console.error('❌ Cursor never started - timeout after 5 seconds');
             reject(new Error('Cursor processing timeout - cursor never started'));
           }
         }, 5000);
         
         try {
-          console.log('📊 Starting cursor iteration...');
-          const self = this; // Save reference for use in callbacks
+          const self = this;
           table.cursor({
             limit: 1000,
             each: function(record) {
               cursorStarted = true;
               clearTimeout(cursorTimeout);
               count++;
-              if (count === 1) {
-                console.log(`  ✓ Processing first equipment record...`);
-              }
-              if (count % 50 === 0) {
-                console.log(`  Processing equipment ${count}...`);
-              }
               try {
                 let slotPath = record.get('slotPath')?.toString() || '';
                 const displayName = record.get('displayName')?.toString() || '';
                 const name = record.get('name')?.toString() || '';
                 
-                if (!slotPath) {
-                  console.warn(`  Skipping record ${count} - no slotPath`);
-                  return;
-                }
+                if (!slotPath) return;
                 
-                // Clean slotPath: remove "slot:" prefix, ensure starts with /
                 slotPath = slotPath.replace(/^slot:/, '').trim();
-                if (!slotPath.startsWith('/')) {
-                  slotPath = '/' + slotPath;
-                }
+                if (!slotPath.startsWith('/')) slotPath = '/' + slotPath;
                 
-                // Extract equipment ID from slotPath
                 const pathParts = slotPath.split('/');
                 const equipId = pathParts[pathParts.length - 1] || slotPath;
-                
-                // Infer equipment type from name/displayName
                 const friendlyType = self._inferEquipmentType(name || displayName);
-                
-                // Extract location from name (e.g., "HP21 300 Link Hall" → "300 Link Hall")
-                const location = self._extractLocation(name || displayName);
                 
                 self.equipment.push({
                   id: equipId,
                   name: displayName || name || equipId,
                   type: friendlyType,
-                  location: location,
+                  location: null, // Will be filled by _discoverLocations
                   ord: slotPath,
                   slotPath: slotPath
                 });
-                
-                if (count === 1) {
-                  console.log(`  ✓ First equipment processed: ${equipId}`);
-                }
-              } catch (e) {
-                console.error(`  ❌ Error processing equipment record ${count}:`, e);
-                console.error('  Error stack:', e.stack);
-              }
+              } catch (e) {}
             },
             after: function() {
               clearTimeout(cursorTimeout);
-              console.log(`✓ Equipment discovery complete: ${self.equipment.length} items processed`);
-              resolve();
+              console.log(`✓ BACnet devices: ${self.equipment.length} found`);
+              
+              // Now discover point-devices (ExhFan, Freezers, etc.)
+              self._discoverPointDevices(baja).then(() => {
+                console.log(`✓ Total equipment: ${self.equipment.length}`);
+                resolve();
+              }).catch(resolve); // Continue even if point devices fail
             }
           });
-          console.log('📊 Cursor call completed, waiting for callbacks...');
         } catch (cursorError) {
           clearTimeout(cursorTimeout);
           console.error('❌ Error calling cursor:', cursorError);
@@ -284,6 +269,91 @@ class NiagaraBQLAdapter {
         reject(err);
       });
     });
+  }
+
+  /**
+   * Discover point-devices (control points that act like equipment)
+   * ExhFans, Freezers, Fridges, Heaters, Cooling Tower, etc.
+   * @private
+   */
+  async _discoverPointDevices(baja) {
+    console.log('🔍 Discovering point-devices (ExhFan, Freezer, Heater, etc.)...');
+    
+    // Build combined WHERE clause for all point device types
+    const patterns = ['ExhFan', 'ExFan', 'Freezer', 'Fridge', 'Heater', 'TowerPlant', 'Tower', 'H20', 'Water'];
+    const whereClause = patterns.map(p => `displayName like '*${p}*'`).join(' or ');
+    
+    const bql = `station:|slot:/Drivers/BacnetNetwork|bql:select slotPath as 'slotPath\\',displayName as 'displayName\\',toString as 'toString\\' from control:ControlPoint where ${whereClause}`;
+    
+    try {
+      const table = await baja.Ord.make(bql).get();
+      if (!table || !table.cursor) {
+        console.log('📦 No point-devices found');
+        return;
+      }
+      
+      const self = this;
+      const existingIds = new Set(this.equipment.map(e => e.id));
+      let addedCount = 0;
+      
+      await new Promise(resolve => {
+        table.cursor({
+          limit: 5000,
+          each: function(record) {
+            try {
+              const slotPath = record.get('slotPath')?.toString() || '';
+              const displayName = record.get('displayName')?.toString() || '';
+              
+              if (!slotPath || !displayName) return;
+              
+              const cleanPath = slotPath.replace(/^slot:/, '').trim();
+              const pathParts = cleanPath.split('/').filter(p => p);
+              const pointName = pathParts[pathParts.length - 1] || '';
+              
+              // Skip if this is a sub-point of existing equipment (like temp sensors)
+              // Only treat as equipment if it's the main control point
+              const nameLower = displayName.toLowerCase();
+              
+              // Match to category
+              let category = null;
+              for (const [type, rule] of Object.entries(NiagaraBQLAdapter.POINT_DEVICE_RULES)) {
+                if (rule.patterns.some(p => p.test(displayName) || p.test(pointName))) {
+                  category = type;
+                  break;
+                }
+              }
+              
+              if (!category) return;
+              
+              // Create unique ID - use displayName if available
+              const equipId = displayName.replace(/\s+/g, '_') || pointName;
+              
+              // Skip if we already have this equipment
+              if (existingIds.has(equipId)) return;
+              existingIds.add(equipId);
+              
+              self.equipment.push({
+                id: equipId,
+                name: displayName || pointName,
+                type: category,
+                location: null,
+                ord: cleanPath,
+                slotPath: cleanPath,
+                isPointDevice: true // Flag to indicate this is a point acting as equipment
+              });
+              
+              addedCount++;
+            } catch (e) {}
+          },
+          after: function() {
+            console.log(`✓ Point-devices: ${addedCount} found`);
+            resolve();
+          }
+        });
+      });
+    } catch (e) {
+      console.warn('⚠️ Point device discovery error:', e);
+    }
   }
 
   /**
@@ -715,6 +785,13 @@ class NiagaraBQLAdapter {
               self.pointsMap.set(point.id, point);
             });
             
+            // Match points to history configs (async, but don't wait)
+            self._matchPointsToHistory(points, equipment.name).then(matchedCount => {
+              if (matchedCount > 0) {
+                console.log(`  📊 ${matchedCount} points have history`);
+              }
+            }).catch(() => {});
+            
             console.log(`  ✓ Loaded ${points.length} points for ${equipment.name}`);
             resolve(points);
           }
@@ -723,6 +800,62 @@ class NiagaraBQLAdapter {
     } catch (e) {
       console.error(`Error loading points for ${equipmentId}:`, e);
       return [];
+    }
+  }
+
+  /**
+   * Match points to history configs to determine which have history
+   * @private
+   */
+  async _matchPointsToHistory(points, equipmentName) {
+    const baja = this._getBaja();
+    if (!baja || points.length === 0) return 0;
+    
+    try {
+      // Query history configs for this equipment
+      const historyBql = `station:|slot:/|bql:select * from history:HistoryConfig where slotPath like '*${equipmentName}*'`;
+      
+      const table = await baja.Ord.make(historyBql).get();
+      if (!table || !table.cursor) return 0;
+      
+      const historyPaths = [];
+      
+      await new Promise(resolve => {
+        table.cursor({
+          limit: 500,
+          each: function(record) {
+            try {
+              const slotPath = record.get('slotPath')?.toString() || '';
+              if (slotPath) {
+                historyPaths.push(slotPath.toLowerCase());
+              }
+            } catch (e) {}
+          },
+          after: function() {
+            resolve();
+          }
+        });
+      });
+      
+      // Match points to history paths
+      let matchCount = 0;
+      for (const point of points) {
+        const pointPath = (point.slotPath || point.ord || '').toLowerCase();
+        const pointName = (point.name || '').toLowerCase();
+        
+        // Check if any history path contains this point
+        for (const histPath of historyPaths) {
+          if (histPath.includes(pointName) || histPath.includes(pointPath.split('/').pop())) {
+            point.hasHistory = true;
+            matchCount++;
+            break;
+          }
+        }
+      }
+      
+      return matchCount;
+    } catch (e) {
+      return 0;
     }
   }
 
@@ -1173,31 +1306,63 @@ class NiagaraBQLAdapter {
       
       console.log(`📍 Found ${locationPoints.length} location points`)
       
-      // Match locations to equipment by equipment ID in path
+      // Match locations to equipment using multiple strategies
       let matchCount = 0
       for (const equip of this.equipment) {
-        const equipId = equip.id || ''
+        const equipPath = (equip.ord || equip.slotPath || '').toLowerCase()
+        const equipId = (equip.id || '').toLowerCase()
         
-        // Find location point that contains this equipment ID in its path
+        let bestMatch = null
+        
+        // Strategy 1: Equipment ID in location path (most specific)
+        // e.g., /Drivers/BacnetNetwork/HP12/points/.../Location matches HP12
         for (const loc of locationPoints) {
-          // Check if location path contains the equipment ID
-          // e.g., /Drivers/BacnetNetwork/HP12/points/.../Location
-          if (loc.path.includes(`/${equipId}/`) && loc.value && loc.value !== 'Unknown') {
-            equip.location = loc.value
-            
-            // Update equipment name to include location (for HPs especially)
-            // "HP21" → "Kitchen - HP21"
-            if (equip.name && !equip.name.includes(loc.value)) {
-              equip.displayName = `${loc.value} - ${equip.name}`
-            }
-            
-            matchCount++
+          const locPathLower = loc.path.toLowerCase()
+          
+          // Check if location path contains equipment ID as a folder
+          if (locPathLower.includes(`/${equipId}/`) && loc.value && loc.value !== 'Unknown') {
+            bestMatch = loc.value
             break
           }
         }
+        
+        // Strategy 2: Find sibling Location point (same parent folder)
+        if (!bestMatch) {
+          const equipPathParts = equipPath.split('/').filter(p => p)
+          if (equipPathParts.length > 0) {
+            // Check if any location point shares the same parent
+            for (const loc of locationPoints) {
+              const locPathParts = loc.path.toLowerCase().split('/').filter(p => p)
+              
+              // Check if location is under same device folder
+              // Equipment: /Drivers/BacnetNetwork/HP12
+              // Location:  /Drivers/BacnetNetwork/HP12/points/Inputs/Location
+              if (locPathParts.length > equipPathParts.length) {
+                const locParent = locPathParts.slice(0, equipPathParts.length).join('/')
+                const equipParent = equipPathParts.join('/')
+                if (locParent === equipParent && loc.value && loc.value !== 'Unknown') {
+                  bestMatch = loc.value
+                  break
+                }
+              }
+            }
+          }
+        }
+        
+        if (bestMatch) {
+          equip.location = bestMatch
+          
+          // Update equipment name to include location (for HPs especially)
+          // "HP21" → "Kitchen - HP21"
+          if (equip.name && !equip.name.toLowerCase().includes(bestMatch.toLowerCase())) {
+            equip.displayName = `${bestMatch} - ${equip.name}`
+          }
+          
+          matchCount++
+        }
       }
       
-      console.log(`📍 Location discovery complete: ${matchCount} equipment matched`)
+      console.log(`📍 Location discovery complete: ${matchCount}/${this.equipment.length} equipment matched`)
     } catch (e) {
       console.warn('⚠️ Error discovering locations:', e)
     }

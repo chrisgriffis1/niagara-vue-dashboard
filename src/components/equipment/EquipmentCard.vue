@@ -290,13 +290,6 @@ const loadMiniChartData = async () => {
 const loadMiniChartForPoint = async (point) => {
   if (!point) return
   
-  // Skip if point doesn't have history configured
-  if (point.hasHistory === false) {
-    console.log(`Point ${point.name} has no history configured`)
-    miniChartData.value = []
-    return
-  }
-  
   loadingMiniChart.value = true
   try {
     const currentAdapter = adapter.value
