@@ -277,20 +277,44 @@ const equipmentTypes = computed(() => {
   return types.sort()
 })
 
-// Get unique locations (filter out tstatLocation and other system values)
+// Get unique locations (filter out system values, device types, and technical names)
 const equipmentLocations = computed(() => {
+  // These are NOT locations - they're device types, system folders, or technical names
+  const excludePatterns = [
+    'unknown', 'tstatlocation', 'tstat_location', 'slot:', 'location',
+    'towerplant', 'towersensor', 'plantcontrol', 'setpoint', 'boiler',
+    'sensor', 'control', 'monitor', 'output', 'input', 'point',
+    'driver', 'bacnet', 'network', 'service', 'alarm', 'history',
+    'schedule', 'trend', 'log', 'config', 'setting', 'parameter',
+    'hot', 'cold', 'supply', 'return', 'discharge', 'mixed',
+    'empl', 'elev', 'equip', 'dss', 'meat', 'dairy', 'cs2'
+  ]
+  
   const locations = [...new Set(equipmentList.value.map(e => e.location))]
     .filter(loc => {
       if (!loc) return false
+      if (loc === 'Unknown') return false
+      if (loc.length <= 2) return false // Too short
+      if (loc.startsWith('/')) return false // Path
+      
       const locLower = loc.toLowerCase()
-      // Filter out empty, "Unknown", and system values
-      return loc !== 'Unknown' && 
-             !locLower.includes('tstatlocation') &&
-             !locLower.includes('tstat_location') &&
-             !locLower.includes('slot:') &&
-             !locLower.startsWith('/') &&
-             !locLower.includes('location') && // Exclude any "Location" strings
-             loc.length > 1 // Exclude single characters
+      
+      // Check against exclude patterns
+      for (const pattern of excludePatterns) {
+        if (locLower.includes(pattern)) return false
+      }
+      
+      // Must look like a real location name (has letters, maybe numbers)
+      // Real locations: "Wing 300", "Kitchen/Bakery", "Bob's Office", "300 Link Hall"
+      // Not locations: "CS245", "DSS", "Hot", "Meat"
+      
+      // If it's all caps and short, probably not a location
+      if (loc === loc.toUpperCase() && loc.length < 6) return false
+      
+      // If it looks like a device ID (letters followed by numbers), skip
+      if (/^[A-Z]{2,4}\d+$/i.test(loc)) return false
+      
+      return true
     })
   return locations.sort()
 })
