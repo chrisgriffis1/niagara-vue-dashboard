@@ -639,15 +639,22 @@ class MockDataAdapter {
 
     const points = this.equipmentPointsMap.get(equipmentId) || [];
     
-    // Return formatted point data
+    // Return formatted point data with all fields needed for sparklines
     return points.map(point => ({
       id: point.id,
       name: point.name,
+      displayName: point.displayName || point.name,
       type: point.type,
       unit: point.unit,
       value: point.value,
       ord: point.ord,
-      displayValue: this._formatPointValue(point)
+      slotPath: point.slotPath || point.ord,
+      equipmentId: point.equipmentId || equipmentId,
+      displayValue: this._formatPointValue(point),
+      trendable: true, // All points are "trendable" in mock mode
+      hasHistory: true, // Enable history for all points in mock mode
+      historyId: point.historyId || `mock_${point.id}`,
+      priority: point.priority || 'normal'
     }));
   }
 
@@ -698,25 +705,41 @@ class MockDataAdapter {
    * @param {Object} timeRange - { start: Date, end: Date }
    * @returns {Promise<Array>} Historical data points
    */
-  async getHistoricalData(pointId, timeRange = {}) {
+  async getHistoricalData(pointIdOrObj, timeRange = {}) {
     if (!this.initialized) {
       await this.initialize();
     }
 
-    const point = this.pointsMap.get(pointId);
+    // Accept either point ID string or full point object (like NiagaraBQLAdapter)
+    let point;
+    let pointId;
+    if (typeof pointIdOrObj === 'object' && pointIdOrObj !== null) {
+      point = pointIdOrObj;
+      pointId = point.id;
+    } else {
+      pointId = pointIdOrObj;
+      point = this.pointsMap.get(pointId);
+    }
     
-    if (!point || typeof point.value !== 'number') {
+    // If point not found in map, use the passed object
+    if (!point) {
+      point = typeof pointIdOrObj === 'object' ? pointIdOrObj : null;
+    }
+    
+    if (!point) {
+      console.log(`⚠️ No point found for: ${pointId}`);
       return [];
     }
-
-    // Generate mock historical data
+    
+    // Get base value - use point.value if available, otherwise generate
+    let baseValue = typeof point.value === 'number' ? point.value : 70;
+    
+    // Generate mock historical data (48 points over 24 hours)
     const now = new Date();
-    const hoursBack = 24;
     const dataPoints = 48; // 30-minute intervals
     const history = [];
 
-    const baseValue = point.value;
-    const variance = baseValue * 0.1; // 10% variance
+    const variance = Math.abs(baseValue) * 0.15; // 15% variance for more visible charts
 
     for (let i = dataPoints - 1; i >= 0; i--) {
       const timestamp = new Date(now.getTime() - (i * 30 * 60 * 1000));
@@ -729,10 +752,11 @@ class MockDataAdapter {
       history.push({
         timestamp: timestamp.toISOString(),
         value: Math.round(value * 100) / 100,
-        pointId: pointId
+        pointId: pointId || point.id
       });
     }
 
+    console.log(`📈 Mock history generated: ${history.length} points for ${point.name || pointId}`);
     return history;
   }
 
