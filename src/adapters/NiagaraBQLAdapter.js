@@ -503,12 +503,12 @@ class NiagaraBQLAdapter {
 
     return this.equipment.map(equip => ({
       id: equip.id,
-      name: equip.name,
+      name: equip.displayName || equip.name, // Use displayName with location if available
       type: equip.type,
       location: equip.location,
       ord: equip.ord,
       pointCount: this.equipmentPointsMap.get(equip.id)?.length || 0,
-      status: equip.status || 'ok' // Status from live subscription or default
+      status: equip.status || 'ok'
     }));
   }
 
@@ -805,8 +805,6 @@ class NiagaraBQLAdapter {
     }
     
     console.log(`📈 Getting history for: ${point.name || point.id}`);
-    console.log(`   slotPath: ${point.slotPath}`);
-    console.log(`   equipmentId: ${point.equipmentId}`);
 
     // Find history ID for this point
     // History IDs are typically the point's path relative to station root
@@ -859,9 +857,8 @@ class NiagaraBQLAdapter {
       const bqlQuery = `select toString as 'To String\\',id as 'id\\',slotPath as 'slotPath' from history:HistoryConfig where slotPath like '%/${escapedEquipment}/%' and slotPath like '%${escapedSlotName}%'`;
       const bqlOrd = `station:|slot:/|bql:${bqlQuery}`;
       
-      console.log(`  🔍 Finding history for ${point.id}:`);
-      console.log(`     Equipment: ${equipmentName}, SlotName: ${slotName}`);
-      console.log(`     BQL: ${bqlQuery}`);
+      // Reduced logging - only log if debugging needed
+      // console.log(`  🔍 Finding history for ${point.id}: ${equipmentName}/${slotName}`);
       
       const table = await baja.Ord.make(bqlOrd).get();
       if (!table || !table.cursor) {
@@ -1072,45 +1069,23 @@ class NiagaraBQLAdapter {
         return [];
       }
 
-      console.log(`  ✓ History object retrieved, querying records...`);
-
       const dataPoints = [];
       const startMillis = startDate.getTime();
       const endMillis = endDate.getTime();
 
       return new Promise((resolve, reject) => {
-        const self = this;
         let recordCount = 0;
-        let filteredCount = 0;
-        let firstRecordTime = null;
-        let lastRecordTime = null;
         
         history.cursor({
           each: function(record) {
             recordCount++;
             
-            if (recordCount === 1) {
-              console.log(`     Processing first history record...`);
-            }
-            if (recordCount % 100 === 0) {
-              console.log(`     Processed ${recordCount} records...`);
-            }
-            
             try {
               const ts = record.get('timestamp');
               const tsMillis = ts.getMillis();
-              const recordDate = new Date(tsMillis);
-              
-              // Track first and last record times
-              if (!firstRecordTime) firstRecordTime = recordDate;
-              lastRecordTime = recordDate;
               
               // Filter by date range
               if (tsMillis < startMillis || tsMillis > endMillis) {
-                filteredCount++;
-                if (filteredCount <= 3) {
-                  console.log(`     Filtered record ${recordCount}: ${recordDate.toISOString()} (outside range)`);
-                }
                 return;
               }
 
@@ -1132,10 +1107,7 @@ class NiagaraBQLAdapter {
           after: function() {
             // Sort by timestamp
             dataPoints.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-            console.log(`  ✓ History query complete: Found ${dataPoints.length} records (checked ${recordCount} total, filtered ${filteredCount})`);
-            if (firstRecordTime && lastRecordTime) {
-              console.log(`     History data spans: ${firstRecordTime.toISOString()} to ${lastRecordTime.toISOString()}`);
-            }
+            console.log(`  ✓ History: ${dataPoints.length} points from ${recordCount} records`);
             resolve(dataPoints);
           }
         });
@@ -1201,34 +1173,31 @@ class NiagaraBQLAdapter {
       
       console.log(`📍 Found ${locationPoints.length} location points`)
       
-      // Match locations to equipment
+      // Match locations to equipment by equipment ID in path
+      let matchCount = 0
       for (const equip of this.equipment) {
-        const equipPath = equip.ord || equip.slotPath || ''
-        const equipPathLower = equipPath.toLowerCase()
+        const equipId = equip.id || ''
         
-        // Find best matching location point
-        let bestMatch = null
-        let bestMatchLength = 0
-        
+        // Find location point that contains this equipment ID in its path
         for (const loc of locationPoints) {
-          const locPathLower = loc.path.toLowerCase()
-          
-          // Check if location path contains equipment path
-          if (locPathLower.includes(equipPathLower) || equipPathLower.includes(locPathLower.split('/').slice(0, -1).join('/'))) {
-            const matchLength = loc.path.split('/').length
-            if (matchLength > bestMatchLength) {
-              bestMatch = loc.value
-              bestMatchLength = matchLength
+          // Check if location path contains the equipment ID
+          // e.g., /Drivers/BacnetNetwork/HP12/points/.../Location
+          if (loc.path.includes(`/${equipId}/`) && loc.value && loc.value !== 'Unknown') {
+            equip.location = loc.value
+            
+            // Update equipment name to include location (for HPs especially)
+            // "HP21" → "Kitchen - HP21"
+            if (equip.name && !equip.name.includes(loc.value)) {
+              equip.displayName = `${loc.value} - ${equip.name}`
             }
+            
+            matchCount++
+            break
           }
-        }
-        
-        if (bestMatch && bestMatch !== 'Unknown') {
-          equip.location = bestMatch
         }
       }
       
-      console.log('📍 Location discovery complete')
+      console.log(`📍 Location discovery complete: ${matchCount} equipment matched`)
     } catch (e) {
       console.warn('⚠️ Error discovering locations:', e)
     }

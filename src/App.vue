@@ -1,9 +1,5 @@
 <template>
   <div class="app-container">
-    <!-- Debug: Always show this to verify Vue is mounting -->
-    <div style="position: fixed; top: 0; left: 0; right: 0; background: #ef4444; color: white; padding: 10px; z-index: 9999; font-size: 12px;">
-      🐛 DEBUG: Vue is mounting | dataLoaded: {{ dataLoaded }} | stats: {{ stats ? 'loaded' : 'null' }}
-    </div>
     <header class="app-header">
       <div>
         <h1>Niagara Dashboard</h1>
