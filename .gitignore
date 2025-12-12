@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# Niagara build artifacts
+niagara-module/
+niagara-dashboard-deploy.zip
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
