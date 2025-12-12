@@ -211,17 +211,35 @@ const onFeedbackSubmitted = (data) => {
 }
 
 const scrollToTop = () => {
+  // Scroll main container or window
+  const mainContent = document.querySelector('.app-main') || document.querySelector('.building-view')
+  if (mainContent) {
+    mainContent.scrollTo({ top: 0, behavior: 'smooth' })
+  }
   window.scrollTo({ top: 0, behavior: 'smooth' })
   fabMenuOpen.value = false
 }
 
 const openFilters = () => {
-  // Emit event or scroll to filters
-  const filterSection = document.querySelector('.filter-section, .equipment-filters')
-  if (filterSection) {
-    filterSection.scrollIntoView({ behavior: 'smooth' })
-  }
   fabMenuOpen.value = false
+  
+  // First scroll to top
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+  
+  // Then try to open filter panel by clicking the filter button
+  setTimeout(() => {
+    const filterBtn = document.querySelector('.filter-btn')
+    if (filterBtn) {
+      filterBtn.click()
+      // Scroll to filter section after it opens
+      setTimeout(() => {
+        const filterSection = document.querySelector('.filter-section')
+        if (filterSection) {
+          filterSection.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }
+      }, 100)
+    }
+  }, 300)
 }
 
 const refreshData = async () => {

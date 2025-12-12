@@ -1,7 +1,10 @@
 <template>
-  <div class="alarm-list card">
-    <div class="alarm-header">
+  <div class="alarm-list card" :class="{ collapsed: isCollapsed }">
+    <div class="alarm-header" @click="toggleCollapse">
       <div class="header-title">
+        <button class="collapse-toggle" :class="{ expanded: !isCollapsed }">
+          {{ isCollapsed ? '▶' : '▼' }}
+        </button>
         <h3>🔔 Active Alarms</h3>
         <span v-if="unacknowledgedCount > 0" class="unack-badge">
           {{ unacknowledgedCount }} unacknowledged
@@ -12,8 +15,8 @@
       </span>
     </div>
 
-    <!-- Alarm Stats -->
-    <div v-if="activeAlarmCount > 0" class="alarm-stats">
+    <!-- Alarm Stats (only when expanded) -->
+    <div v-if="activeAlarmCount > 0 && !isCollapsed" class="alarm-stats">
       <div v-if="criticalCount > 0" class="stat-chip critical">
         <span class="chip-icon">⚠</span>
         {{ criticalCount }} Critical
@@ -32,7 +35,7 @@
       </div>
     </div>
 
-    <div class="alarm-body">
+    <div v-if="!isCollapsed" class="alarm-body">
       <!-- Alarm Items -->
       <div
         v-for="alarm in sortedAlarms"
@@ -104,7 +107,7 @@
  * Tesla-inspired design with visual priority indicators
  */
 
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useAlarmStore } from '../../stores/alarmStore'
 import { useDeviceStore } from '../../stores/deviceStore'
 
@@ -113,8 +116,23 @@ const emit = defineEmits(['equipment-clicked'])
 const alarmStore = useAlarmStore()
 const deviceStore = useDeviceStore()
 
+// Collapse state - collapsed by default if no alarms
+const isCollapsed = ref(true)
+
+// Auto-expand if there are alarms
 const activeAlarmCount = computed(() => alarmStore.activeAlarmCount)
 const unacknowledgedCount = computed(() => alarmStore.unacknowledgedAlarms.length)
+
+// Watch alarm count to auto-expand when alarms come in
+watch(activeAlarmCount, (newCount, oldCount) => {
+  if (newCount > 0 && oldCount === 0) {
+    isCollapsed.value = false // Auto-expand when alarms appear
+  }
+}, { immediate: true })
+
+const toggleCollapse = () => {
+  isCollapsed.value = !isCollapsed.value
+}
 
 const sortedAlarms = computed(() => {
   const alarms = [...alarmStore.activeAlarms]
@@ -212,6 +230,16 @@ const handleEquipmentClick = (equipmentId) => {
 }
 
 /* Header */
+.alarm-list.collapsed {
+  padding-bottom: 0;
+}
+
+.alarm-list.collapsed .alarm-header {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
 .alarm-header {
   display: flex;
   justify-content: space-between;
@@ -219,11 +247,33 @@ const handleEquipmentClick = (equipmentId) => {
   margin-bottom: var(--spacing-md);
   padding-bottom: var(--spacing-md);
   border-bottom: 1px solid var(--color-border);
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.alarm-header:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.collapse-toggle {
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  font-size: 0.8rem;
+  padding: 0;
+  margin-right: 0.5rem;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.collapse-toggle.expanded {
+  transform: rotate(0deg);
 }
 
 .header-title {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: center;
   gap: var(--spacing-xs);
 }
 

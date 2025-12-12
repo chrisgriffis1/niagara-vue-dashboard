@@ -347,6 +347,30 @@ const filteredEquipment = computed(() => {
     }
   }
 
+  // Sort: by type first, then alphanumerically by name
+  filtered = [...filtered].sort((a, b) => {
+    // First sort by type
+    const typeCompare = (a.type || '').localeCompare(b.type || '')
+    if (typeCompare !== 0) return typeCompare
+    
+    // Then sort alphanumerically by name
+    // Handle numeric suffixes properly (HP1, HP2, HP10 should sort correctly)
+    const aName = a.name || ''
+    const bName = b.name || ''
+    
+    // Extract numeric parts for natural sorting
+    const aMatch = aName.match(/^(.+?)(\d+)$/)
+    const bMatch = bName.match(/^(.+?)(\d+)$/)
+    
+    if (aMatch && bMatch && aMatch[1] === bMatch[1]) {
+      // Same prefix, sort by number
+      return parseInt(aMatch[2]) - parseInt(bMatch[2])
+    }
+    
+    // Default string comparison
+    return aName.localeCompare(bName)
+  })
+
   return filtered
 })
 
