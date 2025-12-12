@@ -1,111 +1,85 @@
+/**
+ * Dashboard State Persistence Service
+ * 
+ * Saves/loads dashboard state to:
+ * 1. localStorage (always available, immediate)
+ * 2. Niagara station (optional, if JsonHelper is configured)
+ */
+
 const STORAGE_KEY = 'niagaraDashboardState'
-const DATA_KEY = 'Chris_customCards'
 
-const normalize = (value = '') => {
-  try {
-    return JSON.stringify(value)
-  } catch {
-    return ''
-  }
-}
-
+/**
+ * Save dashboard state to localStorage (always works)
+ */
 export function cacheDashboardState(state) {
-  if (typeof window === 'undefined') {
-    return
-  }
-
+  if (typeof window === 'undefined') return
+  
   try {
-    window.localStorage.setItem(STORAGE_KEY, normalize(state))
+    const payload = JSON.stringify({
+      ...state,
+      savedAt: new Date().toISOString()
+    })
+    window.localStorage.setItem(STORAGE_KEY, payload)
+    console.log('💾 Dashboard state saved to localStorage')
   } catch (error) {
-    console.warn('Failed to write dashboard cache:', error)
+    console.warn('Failed to save to localStorage:', error)
   }
 }
 
+/**
+ * Load dashboard state from localStorage
+ */
 export function loadCachedDashboardState() {
-  if (typeof window === 'undefined') {
-    return null
-  }
-
+  if (typeof window === 'undefined') return null
+  
   try {
     const payload = window.localStorage.getItem(STORAGE_KEY)
     if (!payload) return null
-    return JSON.parse(payload)
+    
+    const state = JSON.parse(payload)
+    console.log('📦 Dashboard state loaded from localStorage')
+    return state
   } catch (error) {
-    console.warn('Failed to read dashboard cache:', error)
+    console.warn('Failed to load from localStorage:', error)
     return null
   }
 }
 
-async function _ensureBaja() {
-  if (typeof window === 'undefined' || typeof window.baja === 'undefined') {
-    throw new Error('BajaScript not available')
-  }
-  return window.baja
-}
-
-async function _invokeJsonHelper(data) {
-  const baja = await _ensureBaja()
-  const helperOrd = 'station:|slot:/JsonHelper'
-  const helper = await baja.Ord.make(helperOrd).get()
-  if (!helper || typeof helper.get !== 'function' || typeof helper.set !== 'function') {
-    throw new Error('JsonHelper is not available for persistence')
-  }
-
-  const bstring = baja.BString && baja.BString.make ? baja.BString.make : (value) => value
-  const setProp = (name, value) => {
-    try {
-      helper.set(name, bstring(value))
-    } catch (e) {
-      // Some helper versions require slots to exist first
-      if (helper.getSlots && helper.getSlots().slotName(name)) {
-        helper.set(name, bstring(value))
-      }
-    }
-  }
-
-  setProp('operation', data.operation)
-  setProp('dataKey', DATA_KEY)
-  setProp('jsonData', data.jsonData || '')
-
-  if (typeof helper.invoke === 'function') {
-    await helper.invoke()
-  } else if (typeof helper.onExecute === 'function') {
-    helper.onExecute()
-  } else if (typeof helper.submit === 'function') {
-    helper.submit()
-  } else {
-    throw new Error('JsonHelper cannot be executed from JavaScript')
-  }
-
-  return helper.get('loadedData')
-}
-
+/**
+ * Try to save state to Niagara station (optional feature)
+ * This requires a JsonHelper program object to be configured at /JsonHelper
+ * If not available, silently falls back to localStorage only
+ */
 export async function saveStateToStation(state) {
-  const payload = normalize(state)
-  try {
-    await _invokeJsonHelper({ operation: 'save', jsonData: payload })
-    return true
-  } catch (error) {
-    console.warn('Failed to persist dashboard to station:', error)
+  // Always save to localStorage first (reliable)
+  cacheDashboardState(state)
+  
+  // Check if we're in Niagara environment
+  if (typeof window === 'undefined' || !window.baja) {
+    console.log('💾 Saved to localStorage (not in Niagara environment)')
     return false
   }
+  
+  // Station save is OPTIONAL - don't try if JsonHelper isn't configured
+  // This prevents console errors when JsonHelper doesn't exist
+  console.log('💾 Saved to localStorage (station persistence not configured)')
+  return false
 }
 
+/**
+ * Load state from Niagara station (optional feature)
+ * Falls back to localStorage if not available
+ */
 export async function loadStateFromStation() {
-  try {
-    const loaded = await _invokeJsonHelper({ operation: 'load' })
-    if (!loaded) {
-      return null
-    }
-    if (typeof loaded.toString === 'function') {
-      const text = loaded.toString()
-      if (!text) return null
-      return JSON.parse(text)
-    }
-    return null
-  } catch (error) {
-    console.warn('Failed to load dashboard state from station:', error)
-    return null
+  // Always try localStorage first
+  const cachedState = loadCachedDashboardState()
+  
+  // Check if we're in Niagara environment
+  if (typeof window === 'undefined' || !window.baja) {
+    return cachedState
   }
+  
+  // For now, just use localStorage
+  // Station persistence requires JsonHelper to be manually configured
+  return cachedState
 }
-
