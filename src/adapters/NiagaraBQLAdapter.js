@@ -846,8 +846,16 @@ class NiagaraBQLAdapter {
    * @private
    */
   _filterAndPrioritizePoints(points) {
-    // Define low-priority prefixes (BACnet network variable prefixes, etc.)
-    const lowPriorityPrefixes = ['nvo', 'nvi', 'no_', 'inhibit', 'clear', 'enable'];
+    // Define low-priority prefixes (BACnet network variable prefixes, internal points, etc.)
+    const lowPriorityPrefixes = [
+      'nvo', 'nvi', 'no_', 'ni_',           // BACnet network variables
+      'inhibit', 'clear', 'enable',          // Control flags
+      'genb', '_mstp',                       // Internal
+      'inspace', 'insupply', 'in',           // Input references
+      'or', 'not', 'next',                   // Logic
+      'occstatein', 'tuncos', 'equal',       // Schedule/tuning
+      'cfg_'                                 // Config
+    ];
     const lowPriorityTypes = ['Unknown', 'Command'];
     
     // Separate high and low priority points
@@ -858,8 +866,11 @@ class NiagaraBQLAdapter {
     points.forEach(point => {
       const nameLower = (point.name || '').toLowerCase();
       
-      // Check for low-priority prefixes
-      const isLowPriority = lowPriorityPrefixes.some(prefix => nameLower.startsWith(prefix.toLowerCase()));
+      // Check for low-priority prefixes (must match at start or with _ separator)
+      const isLowPriority = lowPriorityPrefixes.some(prefix => {
+        const prefixLower = prefix.toLowerCase();
+        return nameLower.startsWith(prefixLower) || nameLower.includes('_' + prefixLower);
+      });
       const isLowType = lowPriorityTypes.includes(point.type);
       
       if (isLowPriority || isLowType) {
@@ -1080,9 +1091,41 @@ class NiagaraBQLAdapter {
    */
   _formatPointValue(point) {
     if (typeof point.value === 'number') {
-      const rounded = Math.round(point.value * 100) / 100;
+      const rounded = Math.round(point.value * 10) / 10; // 1 decimal place
       return point.unit ? `${rounded} ${point.unit}` : rounded.toString();
     }
+    
+    // Format boolean values with friendly text
+    const val = point.value?.toString()?.toLowerCase() || '';
+    const name = (point.name || '').toLowerCase();
+    
+    if (val === 'true' || val === '1' || val === 'on') {
+      // Choose appropriate label based on point name
+      if (name.includes('fan') || name.includes('pump') || name.includes('motor')) {
+        return 'Running'
+      } else if (name.includes('occ') || name.includes('occupied')) {
+        return 'Occupied'
+      } else if (name.includes('enable') || name.includes('enb')) {
+        return 'Enabled'
+      } else if (name.includes('proof') || name.includes('air')) {
+        return 'Air Proof'
+      } else {
+        return 'On'
+      }
+    }
+    
+    if (val === 'false' || val === '0' || val === 'off') {
+      if (name.includes('fan') || name.includes('pump') || name.includes('motor')) {
+        return 'Stopped'
+      } else if (name.includes('occ') || name.includes('occupied')) {
+        return 'Unoccupied'
+      } else if (name.includes('enable') || name.includes('enb')) {
+        return 'Disabled'
+      } else {
+        return 'Off'
+      }
+    }
+    
     return point.value?.toString() || 'N/A';
   }
 
@@ -2125,13 +2168,46 @@ class NiagaraBQLAdapter {
               
               // Extract equipment ID from source name/path OR from alarmClass
               let equipmentId = null
-              const searchStr = sourceName || alarmClass || ''
+              const searchStr = (sourceName || alarmClass || '').toLowerCase()
+              
+              // Try to find matching equipment
               if (searchStr) {
-                // Try to match source to equipment ID
+                // First pass: exact match in source name
                 for (const equip of self.equipment) {
-                  if (searchStr.includes(equip.id) || searchStr.includes(equip.name)) {
+                  const equipIdLower = (equip.id || '').toLowerCase()
+                  const equipNameLower = (equip.name || '').toLowerCase()
+                  if (searchStr.includes(equipIdLower) || searchStr.includes(equipNameLower)) {
                     equipmentId = equip.id
                     break
+                  }
+                }
+                
+                // Second pass: match by type if no exact match
+                if (!equipmentId && friendlyClass) {
+                  const typeLower = friendlyClass.toLowerCase()
+                  // Match alarm class to equipment type (HeatPump -> HP, Kitchen -> Kitchen zone)
+                  for (const equip of self.equipment) {
+                    const equipTypeLower = (equip.type || '').toLowerCase()
+                    const equipIdLower = (equip.id || '').toLowerCase()
+                    
+                    // Check if types match
+                    if (typeLower.includes('heat') && typeLower.includes('pump') && 
+                        (equipTypeLower.includes('heatpump') || equipIdLower.startsWith('hp'))) {
+                      equipmentId = equip.id
+                      break
+                    }
+                    if (typeLower === 'kitchen' && equip.zone === 'Kitchen') {
+                      equipmentId = equip.id
+                      break
+                    }
+                    if (typeLower === 'exhaust' && equipTypeLower.includes('exhaust')) {
+                      equipmentId = equip.id
+                      break
+                    }
+                    if (typeLower === 'default' && equipTypeLower.includes('ahu')) {
+                      equipmentId = equip.id
+                      break
+                    }
                   }
                 }
               }
