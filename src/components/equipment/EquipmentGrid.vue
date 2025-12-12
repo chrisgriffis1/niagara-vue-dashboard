@@ -488,8 +488,8 @@ const getLocationCount = (location) => {
     }
   }
   
-  // Now count by location
-  return filtered.filter(e => e.location === location).length
+  // Now count by location (zone or location)
+  return filtered.filter(e => e.zone === location || e.location === location).length
 }
 
 // Get count for alarm filter (considering other active filters)

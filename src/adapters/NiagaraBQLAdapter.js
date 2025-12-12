@@ -19,6 +19,14 @@ class NiagaraBQLAdapter {
     this.alarms = [];
     this.alarmCallbacks = [];
     this.cacheKey = 'niagara_dashboard_cache';
+    this.zones = [];
+    
+    // Expose adapter to window for debugging
+    // Usage in console: window.adapter.clearCache() or window.adapter.forceRefreshNow()
+    if (typeof window !== 'undefined') {
+      window.adapter = this;
+      console.log('💡 Debug: Use window.adapter.forceRefreshNow() in console to clear cache and reload');
+    }
   }
   
   /**
@@ -74,11 +82,21 @@ class NiagaraBQLAdapter {
     console.log('🗑️ Clearing all cached data...');
     localStorage.removeItem(this.cacheKey);
     localStorage.removeItem('niagara-history-cache');
+    localStorage.removeItem('niagara-force-refresh');
     this.equipment = [];
     this.points = [];
     this.alarms = [];
+    this.zones = [];
     this.initialized = false;
     console.log('✓ Cache cleared - reload page to fetch fresh data');
+  }
+  
+  /**
+   * Force clear cache and reload page (call from console)
+   */
+  forceRefreshNow() {
+    this.clearCache();
+    window.location.reload();
   }
   
   /**
@@ -114,6 +132,7 @@ class NiagaraBQLAdapter {
    * Initialize adapter - check for Niagara environment
    * Tesla-style: Fast startup, only load equipment. Points load lazily per equipment.
    */
+  // BUILD MARKER: 2025-12-11 11:58PM - Zone discovery fix
   async initialize() {
     if (this.initialized) {
       return true;
@@ -123,6 +142,7 @@ class NiagaraBQLAdapter {
       throw new Error('NiagaraBQLAdapter requires Niagara station environment (baja global not found)');
     }
 
+    console.log('🚀 BUILD VERSION: 2025-12-11 11:58PM - Zone Fix Active');
     console.log('🔄 Initializing Niagara BQL Adapter (fast mode)...');
     
     try {
@@ -141,8 +161,16 @@ class NiagaraBQLAdapter {
         this.equipment = cached.equipment;
         this.alarms = cached.alarms || [];
         this.zones = cached.zones || [];
-        console.log(`✓ Loaded ${this.equipment.length} equipment, ${this.alarms.length} alarms, ${this.zones.length} zones from cache`);
         
+        // Debug: check how many equipment have zones in cache
+        const equipWithZones = this.equipment.filter(e => e.zone).length;
+        console.log(`✓ Loaded ${this.equipment.length} equipment, ${this.alarms.length} alarms, ${this.zones.length} zones from cache`);
+        console.log(`📊 DEBUG: ${equipWithZones}/${this.equipment.length} equipment have zone property in cache`);
+        if (equipWithZones > 0) {
+          const sample = this.equipment.find(e => e.zone);
+          console.log(`📊 DEBUG: Sample equipment with zone: ${sample?.id} → zone="${sample?.zone}", location="${sample?.location}"`);
+        }
+
         // Notify alarm callbacks if we have cached alarms
         if (this.alarms.length > 0 && this.alarmCallbacks && this.alarmCallbacks.length > 0) {
           this.alarmCallbacks.forEach(cb => {
@@ -151,34 +179,38 @@ class NiagaraBQLAdapter {
             } catch (e) {}
           })
         }
-        
+
         // Mark as initialized immediately for instant UI
         this.initialized = true;
-        
+
         // ALWAYS run background refresh to get fresh data
         console.log('🔄 Starting background data refresh...');
         setTimeout(async () => {
           try {
+            // CRITICAL: Re-discover zones - they may not be in equipment objects
+            await this._discoverZones();
+            console.log('🔄 Zones refreshed');
+
             // Run these in sequence so we can update cache progressively
             await this._startAlarmMonitoring();
             console.log('🔄 Alarms refreshed');
-            
+
             await this._startLiveSubscriptions();
             console.log('🔄 Status refreshed');
-            
-            // Save updated alarms/status to cache
+
+            // Save updated alarms/status/zones to cache
             this._saveToCache();
-            
+
             // These are slower, run last
             await this._backgroundLoadHistoryPoints();
             console.log('🔄 History points refreshed');
-            
+
             console.log('✓ Background refresh complete - reload page to see changes');
           } catch (e) {
             console.warn('Background refresh error:', e);
           }
         }, 1000); // Delay to let UI render first
-        
+
         return true; // Exit early - we're done!
       }
       
@@ -741,9 +773,14 @@ class NiagaraBQLAdapter {
       name: equip.displayName || equip.name, // Use displayName with location if available
       type: equip.type,
       location: equip.location,
+      zone: equip.zone, // Zone from Location enum point (e.g., "Level2_ZoneCS", "Kitchen")
       ord: equip.ord,
+      path: equip.path,
       pointCount: this.equipmentPointsMap.get(equip.id)?.length || 0,
-      status: equip.status || 'ok'
+      status: equip.status || 'ok',
+      isPointDevice: equip.isPointDevice,
+      currentValue: equip.currentValue,
+      unit: equip.unit
     }));
   }
 
@@ -1562,19 +1599,27 @@ class NiagaraBQLAdapter {
    * @private
    */
   async _discoverZones() {
+    console.log('>>> ZONE DISCOVERY CALLED <<<')
     const baja = this._getBaja()
-    if (!baja) return
+    if (!baja) {
+      console.log('>>> ZONE DISCOVERY: NO BAJA - EXITING <<<')
+      return
+    }
     
-    console.log('🗺️ Discovering Zone/Location enum points for filtering...')
+    console.log('🗺️ Discovering Location enum points for filtering...')
     
     try {
-      // Query for Location points (not tstatLocation) - these are the zone enums
-      // displayName = 'Location' (exactly) or ends with 'Location' but NOT 'tstatLocation'
-      const zoneBql = "station:|slot:/Drivers/BacnetNetwork|bql:select slotPath as 'slotPath\\',out as 'out\\',displayName as 'displayName\\' from control:ControlPoint where (displayName = 'Location' or displayName like '%Location') and displayName not like '*tstat*' and displayName not like '*hp*'"
+      // Query for Location points using toString (same as working patterns)
+      // Use fuzzy match like working patterns: displayName like '*ocation*'
+      const zoneBql = "station:|slot:/Drivers/BacnetNetwork|bql:select slotPath as 'slotPath\\',toString as 'toString\\',displayName as 'displayName\\' from control:ControlPoint where displayName like '*ocation*'"
+
+      console.log('🗺️ BQL Query:', zoneBql)
       
+      console.log('🗺️ Executing zone BQL query...')
       const table = await baja.Ord.make(zoneBql).get()
+      console.log('🗺️ Zone query result:', table ? 'got table' : 'no table')
       if (!table || !table.cursor) {
-        console.log('🗺️ No Zone/Location enum points found')
+        console.log('🗺️ No Zone/Location enum points found - table or cursor missing')
         return
       }
       
@@ -1587,62 +1632,114 @@ class NiagaraBQLAdapter {
           each: function(record) {
             try {
               const slotPath = record.get('slotPath')?.toString() || ''
-              const outValue = record.get('out')?.toString() || ''
+              const toStringValue = record.get('toString')?.toString() || ''
               const displayName = record.get('displayName')?.toString() || ''
-              
-              // Skip tstatLocation points
-              if (displayName.toLowerCase().includes('tstat')) return
-              
-              if (slotPath && outValue) {
+
+              // Log ALL location-related points found by query
+              console.log(`🗺️ Query returned: "${displayName}" = "${toStringValue}" at ${slotPath}`)
+
+              // Skip tstatLocation points - we only want "Location" exactly
+              if (displayName.toLowerCase().includes('tstat')) {
+                console.log(`🗺️ Skipping tstatLocation: ${displayName}`)
+                return
+              }
+
+              // Only process exact "Location" displayName (case insensitive)
+              if (displayName.toLowerCase() !== 'location') {
+                console.log(`🗺️ Skipping non-Location: ${displayName}`)
+                return
+              }
+
+              if (slotPath && toStringValue) {
                 let cleanPath = slotPath.replace(/^slot:/, '').trim()
                 if (!cleanPath.startsWith('/')) cleanPath = '/' + cleanPath
-                
-                // Extract zone value from out
+
+                // Debug log Location points found
+                console.log(`🗺️ Found Location point: "${displayName}" at ${cleanPath} = "${toStringValue}"`)
+
+                // Extract zone value from toString (same as working patterns)
                 // Format: "Wing 300 {ok}" -> "Wing 300"
-                // Format: "ZoneC_S {ok}" -> "ZoneC_S"
-                let zoneValue = outValue.split('{')[0].trim().split('@')[0].trim()
-                
+                // Format: "Kitchen {ok} @def" -> "Kitchen"
+                let zoneValue = toStringValue.split('{')[0].trim()
+                if (!zoneValue) {
+                  zoneValue = toStringValue.split('[')[0].trim()
+                }
+                zoneValue = zoneValue.split('@')[0].trim()
+
                 // Validate zone - must be real value
-                if (zoneValue && 
-                    zoneValue.length >= 2 && 
-                    zoneValue !== '-' && 
+                if (zoneValue &&
+                    zoneValue.length >= 2 &&
+                    zoneValue !== '-' &&
                     zoneValue !== 'null' &&
                     !/^\d+$/.test(zoneValue)) {
-                  
+
                   zonePoints.push({ path: cleanPath, value: zoneValue })
                   uniqueZones.add(zoneValue)
-                  console.log(`🗺️ Zone: "${zoneValue}" from ${displayName}`)
+                  console.log(`🗺️ Valid zone: "${zoneValue}" from ${displayName} at ${cleanPath} (${toStringValue})`)
                 }
               }
-            } catch (e) {}
+            } catch (e) {
+              console.warn('🗺️ Error processing zone record:', e)
+            }
           },
           after: function() {
+            console.log('🗺️ Zone cursor complete')
             resolve()
           }
         })
       })
-      
+
       console.log(`🗺️ Found ${uniqueZones.size} unique zones: ${[...uniqueZones].join(', ')}`)
-      
+      console.log(`🗺️ Found ${zonePoints.length} zone points total`)
+
       // Store zones for filtering
       this.zones = [...uniqueZones].sort()
       
       // Match zones to equipment
+      // Location points are usually under the equipment's folder structure
+      // e.g., /Drivers/BacnetNetwork/HP35/points/Inputs/Location
+      let zoneMatchCount = 0
       for (const equip of this.equipment) {
         const equipId = equip.id || ''
         const equipIdLower = equipId.toLowerCase()
-        
+
         for (const zone of zonePoints) {
           const zonePathLower = zone.path.toLowerCase()
-          
-          if (zonePathLower.includes('/' + equipIdLower + '/')) {
+
+          // Method 1: Check if zone path contains equipment ID
+          if (zonePathLower.includes('/' + equipIdLower + '/') ||
+              zonePathLower.includes('/' + equipIdLower + '.')) {
             equip.zone = zone.value
-            console.log(`🗺️ Matched zone: ${equip.id} → "${zone.value}"`)
+            zoneMatchCount++
+            console.log(`🗺️ Matched zone: ${equip.id} → "${zone.value}" (path: ${zone.path})`)
             break
+          }
+
+          // Method 2: Try to match by device folder name in path
+          // e.g., zone at /Drivers/BacnetNetwork/HP35/points/Inputs/Location
+          // equip.path might be /Drivers/BacnetNetwork/HP35
+          if (equip.path) {
+            const equipPathLower = equip.path.toLowerCase()
+            if (zonePathLower.startsWith(equipPathLower)) {
+              equip.zone = zone.value
+              zoneMatchCount++
+              console.log(`🗺️ Matched zone via path: ${equip.id} → "${zone.value}"`)
+              break
+            }
           }
         }
       }
       
+      // Log zone matching results
+      const equipWithZones = this.equipment.filter(e => e.zone).length
+      console.log(`🗺️ Zone matching complete: ${equipWithZones}/${this.equipment.length} equipment have zones`)
+
+      // If zones were matched, trigger a save to cache
+      if (equipWithZones > 0) {
+        console.log('🗺️ Zones matched! Saving to cache...')
+        this._saveToCache()
+      }
+
     } catch (e) {
       console.warn('⚠️ Error discovering zones:', e.message || e)
     }

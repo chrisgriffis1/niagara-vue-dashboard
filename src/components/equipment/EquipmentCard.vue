@@ -9,7 +9,7 @@
         <h3>{{ equipment.name }}</h3>
         <div class="equipment-meta">
           <span class="equipment-type">{{ equipment.type }}</span>
-          <span class="equipment-location">{{ equipment.location }}</span>
+          <span class="equipment-location">{{ equipment.zone || equipment.location }}</span>
         </div>
       </div>
       <span class="status-dot" :class="statusClass"></span>
