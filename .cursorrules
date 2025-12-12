@@ -1,0 +1,105 @@
+# Niagara Navigator Project Rules
+
+## Code Quality
+
+### Module Size Limits
+- **Target: < 300 lines per file**
+- **Hard limit: < 800 lines per file**
+- If a module grows beyond 300 lines, consider splitting into smaller focused modules
+- Large adapters should be split into service modules (e.g., HistoryService, SubscriptionService)
+
+### Component Structure (Vue)
+- Template, Script, Style sections should each be reasonable size
+- Extract reusable logic into composables (`src/composables/`)
+- Extract complex styling into separate CSS files if needed
+
+## Git Workflow
+
+### Commit Often
+- **Push to git after each successful test**
+- Commit after fixing bugs
+- Commit after adding features
+- Commit before starting major refactors
+- Use descriptive commit messages
+
+### Branch Strategy
+- Work on `real-data-integration` branch for Niagara integration
+- Main branch should stay stable
+
+## Niagara Integration
+
+### BajaScript Patterns
+- Always use `table.cursor({ each: function() {}, after: function() {} })` pattern
+- Use regular functions (not arrow functions) for cursor callbacks
+- Clean slotPath: remove "slot:" prefix, ensure starts with "/"
+- Query from station root for history: `station:|slot:/|bql:...`
+
+### File Compatibility
+- Add `/* @noSnoop */` to all JS/CSS files for Niagara
+- Use `ord?file:` scheme for asset loading
+- Test in Workbench HTML viewer
+
+### Adapters
+- MockDataAdapter for local development
+- NiagaraBQLAdapter for live Niagara stations
+- Both must implement same interface
+
+## UI/UX Guidelines
+
+### Tesla-Style Design
+- Progressive disclosure - show important info first
+- Clean, minimal interface
+- Lazy load data when needed
+- Filter low-priority items by default (nvo_, nvi_, no_ prefixes)
+
+### Point Prioritization
+- HIGH: Points with history, Temperature, Status, Pressure
+- NORMAL: Other named points
+- LOW: nvo_, nvi_, no_, inhibit, clear prefixes
+
+## Testing
+
+### Local Development
+- Run `npm run dev` for local testing
+- Use MockDataAdapter with demo data
+
+### Niagara Deployment
+- Run `npm run build:niagara` to create deployment package
+- Copy `niagara-module/file/web1/*` to station
+- Access via: `https://station-ip/ord/file:^web1/index.html`
+
+## File Organization
+
+```
+src/
+  adapters/          # Data adapters (Mock, NiagaraBQL)
+  components/        # Vue components by feature
+    alarms/
+    charts/
+    dashboard/
+    equipment/
+  composables/       # Reusable Vue composition functions
+  services/          # Business logic services
+  stores/            # Pinia stores
+  views/             # Page-level components
+```
+
+## Known Patterns
+
+### History Lookup
+1. Get point with slotPath
+2. Query `history:HistoryConfig` via BQL from station root
+3. Match by equipment name and slot name
+4. Use history ID with `history:` scheme
+
+### Live Subscriptions
+1. Create `baja.Subscriber()`
+2. Attach 'changed' event handler
+3. Get component with `{ subscriber: subscriber }` option
+4. Update UI on value changes
+
+### Location Discovery
+1. BQL query for points where displayName like '%ocation%'
+2. Match location points to equipment by path
+3. Extract value from toString (e.g., "Kitchen {ok}" → "Kitchen")
+
