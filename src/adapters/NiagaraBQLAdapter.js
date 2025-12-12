@@ -854,7 +854,6 @@ class NiagaraBQLAdapter {
       'inspace', 'insupply',                 // Input references (but not 'in' alone - too broad)
       'occstatein', 'tuncos', 'equal',       // Schedule/tuning
       'cfg_', 'cfg',                         // Config points
-      'breaker',                             // Electrical metadata
       'brand', 'model', 'serial',            // Equipment metadata
       'password', 'network', 'address',      // Network config
       'slot', 'driver'                       // System
@@ -2050,14 +2049,12 @@ class NiagaraBQLAdapter {
     this.alarmCallbacks = []
     
     try {
-      // Use user's working alarm query with msgText for better messages
+      // Include 'source' ORD to fetch alarm extension for resolved messages
       const alarmQueries = [
-        // User's WORKING query - includes msgText for actual alarm message
-        "alarm:|bql:select timestamp, alarmData.sourceName, sourceState, ackState, ackRequired, alarmData.msgText, alarmClass order by timestamp desc",
-        // Alternate with presentValue
-        "alarm:|bql:select timestamp, alarmClass, alarmData.sourceName, alarmData.toState, alarmData.presentValue, alarmData.msgText, sourceState, ackState where alarmData.toState = 'offnormal' or alarmData.toState = 'highLimit' order by timestamp DESC",
-        // Fallback without msgText
-        "alarm:|bql:select timestamp, alarmClass, alarmData.sourceName, sourceState, ackState order by timestamp DESC"
+        // Primary: includes source ORD for extension lookup
+        "alarm:|bql:select timestamp, source, sourceState, ackState, ackRequired, alarmClass order by timestamp desc",
+        // Fallback with alarmData fields
+        "alarm:|bql:select timestamp, alarmData.sourceName, sourceState, ackState, alarmClass order by timestamp desc"
       ]
       
       let table = null
@@ -2093,6 +2090,7 @@ class NiagaraBQLAdapter {
       }
       
       const self = this
+      const alarmPromises = []
       
       await new Promise(resolve => {
         let recordCount = 0
@@ -2101,164 +2099,56 @@ class NiagaraBQLAdapter {
           each: function(record) {
             recordCount++
             try {
-              // Try multiple field name variations based on user's alarm queries
-              const uuid = record.get('uuid')?.toString() || record.get('slotPath')?.toString() || `alarm_${recordCount}`
+              const uuid = record.get('uuid')?.toString() || `alarm_${recordCount}`
               const sourceState = record.get('sourceState')?.toString() || ''
               const ackState = record.get('ackState')?.toString() || ''
               const alarmClass = record.get('alarmClass')?.toString() || ''
-              const timestamp = record.get('timestamp')?.toString() || ''
+              const timestamp = record.get('timestamp')
+              const sourceOrd = record.get('source')
+              const sourcePath = sourceOrd ? sourceOrd.toString() : ''
               
-              // Get fields directly from BQL result (alarmData.* fields)
-              let sourceName = record.get('alarmData.sourceName')?.toString() || record.get('sourceName')?.toString() || ''
-              let msgText = record.get('alarmData.msgText')?.toString() || ''
-              let toState = record.get('alarmData.toState')?.toString() || ''
-              let presentValue = record.get('alarmData.presentValue')?.toString() || ''
-              let ackRequired = record.get('ackRequired')?.toString() || ''
-              
-              // Debug log to see what we're getting
-              if (msgText) {
-                console.log(`🔔 Alarm msgText: "${msgText}" source: "${sourceName}"`)
-              }
-              
-              // Also try alarmData as object if direct fields didn't work
-              if (!sourceName || !msgText) {
-                try {
-                  const alarmDataObj = record.get('alarmData')
-                  if (alarmDataObj) {
-                    if (!sourceName) {
-                      sourceName = alarmDataObj.get?.('sourceName')?.toString() || ''
-                    }
-                    if (!msgText) {
-                      msgText = alarmDataObj.get?.('msgText')?.toString() || ''
-                    }
-                    if (!toState) {
-                      toState = alarmDataObj.get?.('toState')?.toString() || ''
-                    }
-                    if (!presentValue) {
-                      presentValue = alarmDataObj.get?.('presentValue')?.toString() || ''
-                    }
-                  }
-                } catch (e) {}
-              }
-              
-              // Skip if normal state
-              if (sourceState === 'normal' && toState !== 'offnormal' && toState !== 'highLimit') {
+              // Skip normal state alarms
+              if (sourceState === 'normal') {
                 return
               }
               
-              // Debug: console.log(`🔔 Alarm: class=${alarmClass}, state=${sourceState || toState}, source=${sourceName}`)
-              
-              // Parse priority from alarmClass and state
-              let priority = 'normal'
-              const classLower = (alarmClass || '').toLowerCase()
-              const stateLower = (sourceState || toState || '').toLowerCase()
-              if (classLower.includes('critical') || classLower.includes('emergency') || stateLower.includes('fault')) {
-                priority = 'critical'
-              } else if (classLower.includes('warning') || classLower.includes('caution') || stateLower.includes('highlimit') || stateLower.includes('lowlimit')) {
-                priority = 'high'
-              } else if (stateLower.includes('offnormal') || stateLower.includes('alarm')) {
-                priority = 'medium'
+              // Parse equipment and point names from source path
+              // Example: /Drivers/BacnetNetwork/HP44/points/Monitor/AlarmActive1/BooleanChangeOfStateAlarmExt
+              let equipmentName = 'Unknown'
+              let pointName = 'Unknown'
+              const equipMatch = sourcePath.match(/\/([^\/]+)\/points\//)
+              if (equipMatch) equipmentName = equipMatch[1]
+              const pointMatch = sourcePath.match(/\/([^\/]+)\/[^\/]*AlarmExt$/)
+              if (pointMatch) pointName = pointMatch[1]
+              else {
+                const parts = sourcePath.split('/')
+                if (parts.length > 1) pointName = parts[parts.length - 2]
               }
               
-              // Create friendly alarm class name (HeatPumpCatchAllAlarmClass -> Heat Pump)
+              // Parse priority
+              let priority = 'medium'
+              const classLower = (alarmClass || '').toLowerCase()
+              const stateLower = sourceState.toLowerCase()
+              if (classLower.includes('critical') || classLower.includes('emergency') || stateLower.includes('fault')) {
+                priority = 'critical'
+              } else if (classLower.includes('warning') || classLower.includes('caution')) {
+                priority = 'high'
+              }
+              
+              // Friendly class name
               let friendlyClass = alarmClass || 'Unknown'
               friendlyClass = friendlyClass
                 .replace(/AlarmClass$/i, '')
                 .replace(/CatchAll$/i, '')
-                .replace(/([a-z])([A-Z])/g, '$1 $2') // CamelCase to spaces
+                .replace(/([a-z])([A-Z])/g, '$1 $2')
                 .trim()
               
-              // Create message - prioritize msgText (actual alarm message)
-              let message = ''
-              if (msgText && msgText !== 'null') {
-                message = msgText
-              } else if (sourceName) {
-                message = sourceName
-              } else {
-                // Build message from class and state
-                message = friendlyClass
-                if (stateLower && stateLower !== 'offnormal') {
-                  message += ` - ${sourceState || toState}`
-                }
-              }
-              if (!message) message = 'Alarm'
-              
-              // Extract equipment ID from source name/path OR from alarmClass
-              let equipmentId = null
-              const searchStr = (sourceName || alarmClass || '').toLowerCase()
-              
-              // Try to find matching equipment
-              if (searchStr) {
-                // First pass: exact match in source name
-                for (const equip of self.equipment) {
-                  const equipIdLower = (equip.id || '').toLowerCase()
-                  const equipNameLower = (equip.name || '').toLowerCase()
-                  if (searchStr.includes(equipIdLower) || searchStr.includes(equipNameLower)) {
-                    equipmentId = equip.id
-                    break
-                  }
-                }
-                
-                // Second pass: match by type if no exact match
-                if (!equipmentId && friendlyClass) {
-                  const typeLower = friendlyClass.toLowerCase()
-                  // Match alarm class to equipment type (HeatPump -> HP, Kitchen -> Kitchen zone)
-                  for (const equip of self.equipment) {
-                    const equipTypeLower = (equip.type || '').toLowerCase()
-                    const equipIdLower = (equip.id || '').toLowerCase()
-                    
-                    // Check if types match
-                    if (typeLower.includes('heat') && typeLower.includes('pump') && 
-                        (equipTypeLower.includes('heatpump') || equipIdLower.startsWith('hp'))) {
-                      equipmentId = equip.id
-                      break
-                    }
-                    if (typeLower === 'kitchen' && equip.zone === 'Kitchen') {
-                      equipmentId = equip.id
-                      break
-                    }
-                    if (typeLower === 'exhaust' && equipTypeLower.includes('exhaust')) {
-                      equipmentId = equip.id
-                      break
-                    }
-                    if (typeLower === 'default' && equipTypeLower.includes('ahu')) {
-                      equipmentId = equip.id
-                      break
-                    }
-                  }
-                }
-              }
-              
-              // Parse timestamp
-              let alarmTimestamp = new Date()
-              if (timestamp) {
-                try {
-                  // Try to parse timestamp - might be Baja timestamp object
-                  if (timestamp.getMillis) {
-                    alarmTimestamp = new Date(timestamp.getMillis())
-                  } else if (typeof timestamp === 'string') {
-                    alarmTimestamp = new Date(timestamp)
-                  }
-                } catch (e) {
-                  alarmTimestamp = new Date()
-                }
-              }
-              
-              const alarmObj = {
-                id: uuid || `alarm_${Date.now()}_${Math.random()}`,
-                source: sourceName,
-                message: message,
-                priority: priority,
-                state: sourceState || toState,
-                ackState: ackState,
-                timestamp: alarmTimestamp.toISOString(),
-                alarmClass: alarmClass,
-                alarmClassFriendly: friendlyClass, // Human-readable class name
-                active: true, // All queried alarms are active
-                acknowledged: ackState && ackState.toLowerCase().includes('ack'),
-                equipmentId: equipmentId
-              }
-              self.alarms.push(alarmObj)
+              // Create alarm processing promise (fetches extension for resolved message)
+              const processPromise = self._processAlarmRecord(baja, record, {
+                uuid, sourceState, ackState, alarmClass, timestamp,
+                sourceOrd, sourcePath, equipmentName, pointName, priority, friendlyClass
+              })
+              alarmPromises.push(processPromise)
             } catch (e) {
               // Skip invalid alarm record
             }
@@ -2268,6 +2158,10 @@ class NiagaraBQLAdapter {
           }
         })
       })
+      
+      // Wait for all alarm processing to complete
+      const processedAlarms = await Promise.all(alarmPromises)
+      this.alarms = processedAlarms.filter(a => a !== null)
       
       console.log(`🔔 Found ${this.alarms.length} alarms`)
       
@@ -2288,6 +2182,174 @@ class NiagaraBQLAdapter {
     } catch (e) {
       console.warn('⚠️ Error monitoring alarms:', e)
     }
+  }
+  
+  /**
+   * Process a single alarm record - fetches extension to get resolved message
+   * Based on LivePoints.html pattern
+   * @private
+   */
+  async _processAlarmRecord(baja, record, info) {
+    const { uuid, sourceState, ackState, alarmClass, timestamp,
+            sourceOrd, sourcePath, equipmentName, pointName, priority, friendlyClass } = info
+    
+    let message = `${equipmentName} - ${pointName}`
+    let resolvedSourceName = `${equipmentName} - ${pointName}`
+    
+    // Try to fetch alarm extension to get resolved message templates
+    if (sourceOrd) {
+      try {
+        const alarmExt = await baja.Ord.make(sourceOrd.toString()).get()
+        
+        if (alarmExt) {
+          // Get message templates from extension
+          let toOffnormalText = ''
+          let toNormalText = ''
+          const alarmDataFields = {}
+          
+          try {
+            if (alarmExt.get('toOffnormalText')) {
+              toOffnormalText = alarmExt.get('toOffnormalText').toString()
+            }
+          } catch (e) {}
+          
+          try {
+            if (alarmExt.get('toNormalText')) {
+              toNormalText = alarmExt.get('toNormalText').toString()
+            }
+          } catch (e) {}
+          
+          // Get metadata for placeholder resolution
+          try {
+            const metaData = alarmExt.get('metaData')
+            if (metaData) {
+              const metaDataStr = metaData.toString()
+              if (metaDataStr && metaDataStr.trim()) {
+                metaDataStr.split(',').forEach(pair => {
+                  const parts = pair.split('=')
+                  if (parts.length === 2) {
+                    alarmDataFields[parts[0].trim()] = parts[1].trim()
+                  }
+                })
+              }
+            }
+          } catch (e) {}
+          
+          // Get offnormal value
+          try {
+            const offnormalValue = alarmExt.get('offnormalValue')
+            if (offnormalValue && offnormalValue.toString() !== 'null') {
+              alarmDataFields.offnormalValue = offnormalValue.toString()
+            }
+          } catch (e) {}
+          
+          // Add display names
+          alarmDataFields.displayName = pointName
+          alarmDataFields.parentDisplayName = equipmentName
+          
+          // Determine which template to use
+          const isNormal = sourceState.toLowerCase() === 'normal'
+          const msgTemplate = isNormal ? toNormalText : toOffnormalText
+          
+          if (msgTemplate) {
+            // Replace placeholders
+            message = this._replacePlaceholders(msgTemplate, alarmDataFields, sourcePath, equipmentName, pointName)
+          }
+          
+          console.log(`🔔 Resolved alarm: ${equipmentName} - ${pointName}: "${message}"`)
+        }
+      } catch (e) {
+        // Couldn't fetch extension, use default message
+        console.log(`🔔 Using default message for ${equipmentName}`)
+      }
+    }
+    
+    // Parse timestamp
+    let alarmTimestamp = new Date()
+    if (timestamp) {
+      try {
+        if (timestamp.getMillis) {
+          alarmTimestamp = new Date(timestamp.getMillis())
+        } else if (typeof timestamp === 'string') {
+          alarmTimestamp = new Date(timestamp)
+        }
+      } catch (e) {}
+    }
+    
+    // Find matching equipment
+    let equipmentId = null
+    const searchStr = (equipmentName || alarmClass || '').toLowerCase()
+    
+    for (const equip of this.equipment) {
+      const equipIdLower = (equip.id || '').toLowerCase()
+      const equipNameLower = (equip.name || '').toLowerCase()
+      if (searchStr.includes(equipIdLower) || searchStr.includes(equipNameLower) || 
+          equipIdLower.includes(searchStr)) {
+        equipmentId = equip.id
+        break
+      }
+    }
+    
+    return {
+      id: uuid || `alarm_${Date.now()}_${Math.random()}`,
+      source: resolvedSourceName,
+      message: message,
+      priority: priority,
+      state: sourceState,
+      ackState: ackState,
+      timestamp: alarmTimestamp.toISOString(),
+      alarmClass: alarmClass,
+      alarmClassFriendly: friendlyClass,
+      active: true,
+      acknowledged: ackState && ackState.toLowerCase().includes('ack'),
+      equipmentId: equipmentId
+    }
+  }
+  
+  /**
+   * Replace placeholders in alarm message templates
+   * @private
+   */
+  _replacePlaceholders(template, alarmDataFields, sourcePath, equipmentName, pointName) {
+    if (!template) return 'Alarm'
+    
+    let result = template
+    
+    // Replace %alarmData.fieldName% placeholders
+    result = result.replace(/%alarmData\.(\w+)%/g, (match, fieldName) => {
+      if (alarmDataFields[fieldName]) {
+        return alarmDataFields[fieldName]
+      }
+      return ''
+    })
+    
+    // Replace %parent.parent...displayName% placeholders
+    result = result.replace(/%parent((?:\.parent)*)\.(\w+)%/g, (match, parentChain, fieldName) => {
+      try {
+        const parentCount = parentChain ? (parentChain.match(/\.parent/g) || []).length : 0
+        const pathParts = sourcePath.split('/').filter(p => p)
+        
+        if (pathParts.length > parentCount + 1) {
+          const targetIndex = pathParts.length - (parentCount + 2)
+          const targetName = pathParts[targetIndex]
+          
+          if (fieldName === 'displayName') {
+            return targetName
+          }
+        }
+      } catch (e) {}
+      return equipmentName
+    })
+    
+    // Clean up any remaining placeholders
+    result = result.replace(/%[^%]+%/g, '')
+    
+    // If result is empty after placeholder removal, use default
+    if (!result.trim()) {
+      result = `${equipmentName} - ${pointName} - Alarm`
+    }
+    
+    return result.trim()
   }
   
   /**
