@@ -100,6 +100,18 @@
         <div v-if="!loading && points.length === 0" class="no-points">
           No points available
         </div>
+        
+        <!-- Tesla-style: Show more points toggle -->
+        <div v-if="!loading && allPointsCount > points.length" class="show-more-section">
+          <button @click.stop="toggleShowAllPoints" class="show-more-btn">
+            {{ showAllPoints ? '⬆ Show Less' : `⬇ Show All ${allPointsCount} Points` }}
+          </button>
+        </div>
+        <div v-else-if="showAllPoints && points.length > 10" class="show-more-section">
+          <button @click.stop="toggleShowAllPoints" class="show-more-btn">
+            ⬆ Show Less
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -137,6 +149,8 @@ const adapter = computed(() => deviceStore.adapter || deviceStore.getAdapter())
 const pointsExpanded = ref(false)
 const loading = ref(false)
 const points = ref([])
+const allPointsCount = ref(0) // Total points including hidden
+const showAllPoints = ref(false) // Toggle for Tesla-style progressive disclosure
 const miniChartData = ref([])
 const loadingMiniChart = ref(false)
 const primaryPoint = ref(null)
@@ -210,16 +224,32 @@ const togglePoints = async () => {
   }
 }
 
-// Load points from adapter
-const loadPoints = async () => {
+// Load points from adapter - Tesla style: filtered by default
+const loadPoints = async (showAll = false) => {
   loading.value = true
   try {
-    points.value = await deviceStore.loadDevicePoints(props.equipment.id)
+    // Load filtered points (Tesla-style: only important ones)
+    const loadedPoints = await deviceStore.loadDevicePoints(props.equipment.id, { showAll })
+    points.value = loadedPoints
+    
+    // Get total count for "show more" button
+    if (!showAll) {
+      const allPoints = await deviceStore.loadDevicePoints(props.equipment.id, { showAll: true })
+      allPointsCount.value = allPoints.length
+    } else {
+      allPointsCount.value = loadedPoints.length
+    }
   } catch (error) {
     console.error('Failed to load points:', error)
   } finally {
     loading.value = false
   }
+}
+
+// Toggle between filtered and all points
+const toggleShowAllPoints = async () => {
+  showAllPoints.value = !showAllPoints.value
+  await loadPoints(showAllPoints.value)
 }
 
 // Load mini-chart data (last 1 hour) - only when expanded
@@ -663,6 +693,30 @@ watch(() => props.equipment.id, () => {
   text-align: center;
   color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
+}
+
+/* Tesla-style show more section */
+.show-more-section {
+  padding: var(--spacing-sm);
+  text-align: center;
+  border-top: 1px solid var(--color-border);
+}
+
+.show-more-btn {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  padding: var(--spacing-xs) var(--spacing-md);
+  border-radius: var(--border-radius);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  transition: all 0.2s ease;
+}
+
+.show-more-btn:hover {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  border-color: var(--color-accent-primary);
 }
 
 /* Scrollbar for points list */

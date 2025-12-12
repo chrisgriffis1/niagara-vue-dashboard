@@ -41,6 +41,7 @@ class NiagaraBQLAdapter {
 
   /**
    * Initialize adapter - check for Niagara environment
+   * Tesla-style: Fast startup, only load equipment. Points load lazily per equipment.
    */
   async initialize() {
     if (this.initialized) {
@@ -51,24 +52,14 @@ class NiagaraBQLAdapter {
       throw new Error('NiagaraBQLAdapter requires Niagara station environment (baja global not found)');
     }
 
-    console.log('🔄 Initializing Niagara BQL Adapter...');
+    console.log('🔄 Initializing Niagara BQL Adapter (fast mode)...');
     
     try {
-      // Discover all equipment and points
-      console.log('📡 Step 1/2: Discovering equipment...');
+      // Tesla-style: Only discover equipment at startup - FAST!
+      // Points load lazily when user expands equipment card
+      console.log('📡 Discovering equipment...');
       await this._discoverAllEquipment();
       console.log(`✓ Found ${this.equipment.length} equipment items`);
-      
-      console.log('📡 Step 2/2: Discovering points...');
-      await this._discoverAllPoints();
-      console.log(`✓ Found ${this.points.length} points`);
-      
-      // Build lookup maps
-      this.points.forEach(point => {
-        this.pointsMap.set(point.id, point);
-      });
-      
-      this._buildEquipmentPointMapping();
       
       // Start live subscriptions for equipment status (non-blocking)
       this._startLiveSubscriptions().catch(err => {
@@ -77,15 +68,36 @@ class NiagaraBQLAdapter {
       
       this.initialized = true;
       
-      console.log(`✓ Niagara BQL Adapter initialized:`);
+      console.log(`✓ Niagara BQL Adapter initialized (fast mode):`);
       console.log(`  📦 Equipment: ${this.equipment.length}`);
-      console.log(`  📍 Points: ${this.points.length}`);
+      console.log(`  📍 Points: Load on demand`);
       
       return true;
     } catch (error) {
       console.error('❌ Failed to initialize Niagara adapter:', error);
       throw error;
     }
+  }
+  
+  /**
+   * Load all points (for full discovery if needed)
+   * Call this explicitly if you need ALL points
+   */
+  async loadAllPoints() {
+    if (this.points.length > 0) {
+      return; // Already loaded
+    }
+    
+    console.log('📡 Loading all points (full discovery)...');
+    await this._discoverAllPoints();
+    console.log(`✓ Found ${this.points.length} points`);
+    
+    // Build lookup maps
+    this.points.forEach(point => {
+      this.pointsMap.set(point.id, point);
+    });
+    
+    this._buildEquipmentPointMapping();
   }
 
   /**
@@ -425,16 +437,31 @@ class NiagaraBQLAdapter {
   }
 
   /**
-   * Get all points for a specific equipment
+   * Get points for a specific equipment - Tesla style: filtered and prioritized
+   * Lazy loads points for this equipment if not already loaded
+   * @param {string} equipmentId - Equipment ID
+   * @param {object} options - { showAll: false } to show filtered, true for all
    */
-  async getPointsByEquipment(equipmentId) {
+  async getPointsByEquipment(equipmentId, options = {}) {
     if (!this.initialized) {
       await this.initialize();
     }
 
-    const points = this.equipmentPointsMap.get(equipmentId) || [];
+    // Check if we already have points for this equipment
+    let points = this.equipmentPointsMap.get(equipmentId);
     
-    return points.map(point => ({
+    // Lazy load points for this equipment if not loaded
+    if (!points || points.length === 0) {
+      points = await this._loadPointsForEquipment(equipmentId);
+    }
+    
+    // Tesla-style filtering - only show important points by default
+    let filteredPoints = points;
+    if (!options.showAll) {
+      filteredPoints = this._filterAndPrioritizePoints(points);
+    }
+    
+    return filteredPoints.map(point => ({
       id: point.id,
       name: point.name,
       type: point.type,
@@ -442,8 +469,166 @@ class NiagaraBQLAdapter {
       value: point.value,
       ord: point.ord,
       displayValue: this._formatPointValue(point),
-      trendable: point.trendable
+      trendable: point.trendable,
+      hasHistory: !!point.hasHistory,
+      priority: point.priority || 'normal'
     }));
+  }
+  
+  /**
+   * Tesla-style: Filter and prioritize points
+   * HIGH: Points with history, status points, non-prefixed names
+   * LOW: nvo_, nvi_, no_, inhibit prefixed points
+   * @private
+   */
+  _filterAndPrioritizePoints(points) {
+    // Define low-priority prefixes (BACnet network variable prefixes, etc.)
+    const lowPriorityPrefixes = ['nvo', 'nvi', 'no_', 'inhibit', 'clear', 'enable'];
+    const lowPriorityTypes = ['Unknown', 'Command'];
+    
+    // Separate high and low priority points
+    const highPriority = [];
+    const normalPriority = [];
+    const lowPriority = [];
+    
+    points.forEach(point => {
+      const nameLower = (point.name || '').toLowerCase();
+      
+      // Check for low-priority prefixes
+      const isLowPriority = lowPriorityPrefixes.some(prefix => nameLower.startsWith(prefix.toLowerCase()));
+      const isLowType = lowPriorityTypes.includes(point.type);
+      
+      if (isLowPriority || isLowType) {
+        point.priority = 'low';
+        lowPriority.push(point);
+      } else if (point.hasHistory || point.type === 'Temperature' || point.type === 'Status') {
+        // High priority: has history, temperature readings, status
+        point.priority = 'high';
+        highPriority.push(point);
+      } else {
+        point.priority = 'normal';
+        normalPriority.push(point);
+      }
+    });
+    
+    // Return high priority first, then normal - skip low priority by default
+    // Limit to top 10 for clean UI
+    const result = [...highPriority, ...normalPriority].slice(0, 10);
+    
+    console.log(`  📊 Filtered points: ${highPriority.length} high, ${normalPriority.length} normal, ${lowPriority.length} low (showing ${result.length})`);
+    
+    return result;
+  }
+  
+  /**
+   * Lazy load points for a specific equipment using BQL
+   * @private
+   */
+  async _loadPointsForEquipment(equipmentId) {
+    const baja = this._getBaja();
+    if (!baja) {
+      return [];
+    }
+    
+    // Find the equipment to get its path
+    const equipment = this.equipment.find(e => e.id === equipmentId);
+    if (!equipment || !equipment.slotPath) {
+      console.warn(`Equipment not found: ${equipmentId}`);
+      return [];
+    }
+    
+    console.log(`  📡 Loading points for ${equipment.name}...`);
+    
+    // Query points for this specific equipment
+    const bql = `station:|slot:${equipment.slotPath}|bql:select slotPath, displayName, name, out from control:ControlPoint`;
+    
+    try {
+      const table = await baja.Ord.make(bql).get();
+      if (!table || !table.cursor) {
+        return [];
+      }
+      
+      const points = [];
+      const self = this;
+      
+      return new Promise((resolve) => {
+        table.cursor({
+          limit: 500, // Limit per equipment
+          each: function(record) {
+            try {
+              const slotPath = record.get('slotPath')?.toString() || '';
+              const displayName = record.get('displayName')?.toString() || '';
+              const name = record.get('name')?.toString() || '';
+              
+              if (!slotPath) return;
+              
+              // Parse value and status
+              let outValue = null;
+              let outStatus = 'ok';
+              let unit = '';
+              
+              try {
+                const outVal = record.get('out');
+                if (outVal) {
+                  const outStr = outVal.toString();
+                  const match = outStr.match(/^(.+?)\s*\{([^}]+)\}/);
+                  if (match) {
+                    outValue = match[1].trim();
+                    outStatus = match[2].trim();
+                  } else {
+                    outValue = outStr;
+                  }
+                  
+                  const numVal = parseFloat(outValue);
+                  if (!isNaN(numVal)) {
+                    outValue = numVal;
+                    const unitMatch = outStr.match(/(°F|°C|%|psi|cfm|rpm|kw|v|a)/i);
+                    if (unitMatch) unit = unitMatch[1];
+                  }
+                }
+              } catch (e) {}
+              
+              const pointId = `${equipmentId}_${name || displayName}`;
+              const pointType = self._inferPointType(name || displayName);
+              
+              // Check if displayName differs from name (more important)
+              const hasCustomName = displayName && name && displayName !== name;
+              
+              points.push({
+                id: pointId,
+                name: displayName || name || 'Unknown',
+                type: pointType,
+                unit: unit,
+                value: outValue,
+                status: outStatus,
+                ord: slotPath,
+                slotPath: slotPath,
+                equipmentId: equipmentId,
+                trendable: self._isTrendable(pointType),
+                hasHistory: false, // Will be set when history is queried
+                hasCustomName: hasCustomName
+              });
+            } catch (e) {}
+          },
+          after: function() {
+            // Store in map for caching
+            self.equipmentPointsMap.set(equipmentId, points);
+            
+            // Also add to main points array and map
+            points.forEach(point => {
+              self.points.push(point);
+              self.pointsMap.set(point.id, point);
+            });
+            
+            console.log(`  ✓ Loaded ${points.length} points for ${equipment.name}`);
+            resolve(points);
+          }
+        });
+      });
+    } catch (e) {
+      console.error(`Error loading points for ${equipmentId}:`, e);
+      return [];
+    }
   }
 
   /**

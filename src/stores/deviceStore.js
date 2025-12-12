@@ -124,12 +124,17 @@ export const useDeviceStore = defineStore('device', {
 
     /**
      * Load points for a specific device
+     * @param {string} deviceId - Device ID
+     * @param {object} options - { showAll: false } for filtered, true for all points
      */
-    async loadDevicePoints(deviceId) {
+    async loadDevicePoints(deviceId, options = {}) {
       try {
         await this.initializeAdapter()
-        const points = await this.adapter.getPointsByEquipment(deviceId)
-        this.devicePoints[deviceId] = points
+        const points = await this.adapter.getPointsByEquipment(deviceId, options)
+        // Only cache filtered view
+        if (!options.showAll) {
+          this.devicePoints[deviceId] = points
+        }
         return points
       } catch (err) {
         console.error('Failed to load device points:', err)
