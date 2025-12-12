@@ -2009,24 +2009,46 @@ class NiagaraBQLAdapter {
                 return
               }
               
-              console.log(`🔔 Alarm: class=${alarmClass}, state=${sourceState || toState}, source=${sourceName}`)
-              console.log(`🔔 DEBUG: sourceState="${sourceState}", toState="${toState}", will push alarm`)
+              // Debug: console.log(`🔔 Alarm: class=${alarmClass}, state=${sourceState || toState}, source=${sourceName}`)
               
-              // Parse priority from alarmClass
+              // Parse priority from alarmClass and state
               let priority = 'normal'
               const classLower = (alarmClass || '').toLowerCase()
-              if (classLower.includes('critical') || classLower.includes('emergency')) {
+              const stateLower = (sourceState || toState || '').toLowerCase()
+              if (classLower.includes('critical') || classLower.includes('emergency') || stateLower.includes('fault')) {
                 priority = 'critical'
-              } else if (classLower.includes('warning') || classLower.includes('caution')) {
-                priority = 'warning'
+              } else if (classLower.includes('warning') || classLower.includes('caution') || stateLower.includes('highlimit') || stateLower.includes('lowlimit')) {
+                priority = 'high'
+              } else if (stateLower.includes('offnormal') || stateLower.includes('alarm')) {
+                priority = 'medium'
               }
               
-              // Extract equipment ID from source name/path
+              // Create friendly alarm class name (HeatPumpCatchAllAlarmClass -> Heat Pump)
+              let friendlyClass = alarmClass || 'Unknown'
+              friendlyClass = friendlyClass
+                .replace(/AlarmClass$/i, '')
+                .replace(/CatchAll$/i, '')
+                .replace(/([a-z])([A-Z])/g, '$1 $2') // CamelCase to spaces
+                .trim()
+              
+              // Create message from available data
+              let message = alarmData || sourceName || ''
+              if (!message || message === 'Alarm') {
+                // Build message from class and state
+                message = friendlyClass
+                if (stateLower && stateLower !== 'offnormal') {
+                  message += ` - ${sourceState || toState}`
+                }
+              }
+              if (!message) message = 'Alarm'
+              
+              // Extract equipment ID from source name/path OR from alarmClass
               let equipmentId = null
-              if (sourceName) {
+              const searchStr = sourceName || alarmClass || ''
+              if (searchStr) {
                 // Try to match source to equipment ID
                 for (const equip of self.equipment) {
-                  if (sourceName.includes(equip.id) || sourceName.includes(equip.name)) {
+                  if (searchStr.includes(equip.id) || searchStr.includes(equip.name)) {
                     equipmentId = equip.id
                     break
                   }
@@ -2051,20 +2073,20 @@ class NiagaraBQLAdapter {
               const alarmObj = {
                 id: uuid || `alarm_${Date.now()}_${Math.random()}`,
                 source: sourceName,
-                message: alarmData || sourceName || 'Alarm',
+                message: message,
                 priority: priority,
                 state: sourceState || toState,
                 ackState: ackState,
                 timestamp: alarmTimestamp.toISOString(),
                 alarmClass: alarmClass,
+                alarmClassFriendly: friendlyClass, // Human-readable class name
                 active: true, // All queried alarms are active
                 acknowledged: ackState && ackState.toLowerCase().includes('ack'),
                 equipmentId: equipmentId
               }
               self.alarms.push(alarmObj)
-              console.log(`🔔 DEBUG: Pushed alarm, total now: ${self.alarms.length}`)
             } catch (e) {
-              console.warn(`🔔 DEBUG: Error pushing alarm:`, e)
+              // Skip invalid alarm record
             }
           },
           after: function() {

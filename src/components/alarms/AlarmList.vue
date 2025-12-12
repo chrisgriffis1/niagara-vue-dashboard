@@ -57,10 +57,14 @@
           <div class="alarm-details">
             <div class="alarm-header-row">
               <span class="alarm-priority-label">{{ alarm.priority.toUpperCase() }}</span>
+              <span v-if="alarm.alarmClassFriendly" class="alarm-class-badge">{{ alarm.alarmClassFriendly }}</span>
               <span class="alarm-time">{{ formatTimeAgo(alarm.timestamp) }}</span>
             </div>
             <p class="alarm-message">{{ alarm.message }}</p>
             <div class="alarm-meta">
+              <span v-if="alarm.state" class="alarm-state">
+                State: {{ alarm.state }}
+              </span>
               <span 
                 v-if="alarm.equipmentId" 
                 class="equipment-link"
@@ -463,6 +467,20 @@ const handleEquipmentClick = (equipmentId) => {
   font-size: var(--font-size-xs);
   color: var(--color-text-secondary);
   font-weight: var(--font-weight-medium);
+}
+
+.alarm-class-badge {
+  font-size: var(--font-size-xs);
+  color: var(--color-accent-primary);
+  background: rgba(59, 130, 246, 0.1);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.alarm-state {
+  color: var(--color-text-tertiary);
+  font-style: italic;
 }
 
 .alarm-message {
