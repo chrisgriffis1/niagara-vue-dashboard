@@ -1406,8 +1406,11 @@ class NiagaraBQLAdapter {
     // COV = Change of Value - only records when significant change happens
     const startDate = timeRange.start || new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
     const endDate = timeRange.end || new Date();
+    
+    // For full charts (with explicit time range), allow more records
+    const maxRecords = timeRange.start ? 2000 : 500; // 500 for sparklines, 2000 for full charts
 
-    const data = await this._queryHistory(historyId, startDate, endDate);
+    const data = await this._queryHistory(historyId, startDate, endDate, maxRecords);
     
     // Cache the result in memory (5 min) and localStorage (30 min)
     this.historyCache.set(historyId, { data, timestamp: Date.now() })
@@ -1721,7 +1724,7 @@ class NiagaraBQLAdapter {
    * Query history data using history: scheme
    * @private
    */
-  async _queryHistory(historyId, startDate, endDate) {
+  async _queryHistory(historyId, startDate, endDate, maxRecords = 500) {
     const baja = this._getBaja()
     if (!baja) {
       throw new Error('baja not available')
@@ -1736,8 +1739,7 @@ class NiagaraBQLAdapter {
         historyOrd = "history:" + historyOrd;
       }
 
-      console.log(`  📊 Querying history: ${historyOrd}`);
-      console.log(`     Time range: ${startDate.toISOString()} to ${endDate.toISOString()}`);
+      console.log(`  📊 Querying history: ${historyOrd} (limit: ${maxRecords})`);
 
       const history = await baja.Ord.make(historyOrd).get();
       if (!history) {
@@ -1753,6 +1755,7 @@ class NiagaraBQLAdapter {
         let recordCount = 0;
         
         history.cursor({
+          limit: maxRecords, // CRITICAL: Limit records for performance
           each: function(record) {
             recordCount++;
             
@@ -1767,7 +1770,13 @@ class NiagaraBQLAdapter {
 
               const val = record.get('value');
               const valueStr = val.encodeToString();
-              const numVal = parseFloat(valueStr);
+              let numVal = parseFloat(valueStr);
+              
+              // Handle boolean values
+              if (isNaN(numVal)) {
+                if (valueStr === 'true') numVal = 1;
+                else if (valueStr === 'false') numVal = 0;
+              }
               
               if (!isNaN(numVal)) {
                 dataPoints.push({
