@@ -933,32 +933,9 @@ class NiagaraBQLAdapter {
     }
     console.log(`  📝 Clean path: ${cleanPath}`);
     
-    // Query points for this specific equipment, excluding junk points at BQL level
-    // Filter out: ni_*, nvo*, nvi*, gEnb*, _mstp*, Or*, Not*, Next*, OccStateIn*, TUNCOS*, Equal*, Cfg_*, Inhibit*, no_*
-    const excludePatterns = [
-      "name not like 'ni_*'",
-      "name not like 'nvo*'",
-      "name not like 'nvi*'",
-      "name not like 'gEnb*'",
-      "name not like '_mstp*'",
-      "name not like 'Cfg_*'",
-      "name not like 'Cfg*'",
-      "name not like 'Inhibit*'",
-      "name not like 'no_*'",
-      "name not like '*TUNCOS*'",
-      "name not like 'OccStateIn*'",
-      "name not like 'Or'",
-      "name not like 'Or_*'",
-      "name not like 'Not'",
-      "name not like 'Not_*'",
-      "name not like 'Next*'",
-      "name not like 'Equal*'",
-      "name not like 'inSpace*'",
-      "name not like 'inSupply*'"
-    ].join(' and ');
-    
-    const bql = `station:|slot:${cleanPath}|bql:select slotPath, displayName, name, out from control:ControlPoint where ${excludePatterns}`;
-    console.log(`  📝 BQL: ${bql.substring(0, 100)}...`);
+    // Query all points - filtering done in JavaScript later
+    const bql = `station:|slot:${cleanPath}|bql:select slotPath, displayName, name, out from control:ControlPoint`;
+    console.log(`  📝 BQL: ${bql}`);
     
     try {
       const table = await baja.Ord.make(bql).get();
@@ -2121,40 +2098,6 @@ class NiagaraBQLAdapter {
           each: function(record) {
             recordCount++
             try {
-              // DEBUG: Log first alarm record to see all available fields
-              if (recordCount === 1) {
-                console.log('🔔 DEBUG: First alarm record fields:')
-                // Try to get all properties
-                const possibleFields = ['uuid', 'source', 'sourceState', 'ackState', 'ackRequired', 
-                  'alarmClass', 'timestamp', 'normalTime', 'alarmData', 'msgText', 'message',
-                  'sourceName', 'displayName', 'notes', 'priority', 'data', 'text', 'description']
-                possibleFields.forEach(field => {
-                  try {
-                    const val = record.get(field)
-                    if (val !== null && val !== undefined) {
-                      console.log(`   ${field}: ${val?.toString?.() || val}`)
-                    }
-                  } catch (e) {}
-                })
-                // Also try record.toString() directly
-                try {
-                  console.log('   record.toString():', record.toString?.())
-                } catch (e) {}
-                // Try to iterate properties if possible
-                try {
-                  if (record.getProperties) {
-                    console.log('   record.getProperties():', record.getProperties())
-                  }
-                } catch (e) {}
-                // Try to get all slots
-                try {
-                  if (record.getSlots) {
-                    const slots = record.getSlots()
-                    console.log('   record.getSlots():', slots?.map?.(s => s.getName?.()))
-                  }
-                } catch (e) {}
-              }
-              
               const uuid = record.get('uuid')?.toString() || `alarm_${recordCount}`
               const sourceState = record.get('sourceState')?.toString() || ''
               const ackState = record.get('ackState')?.toString() || ''
@@ -2163,10 +2106,8 @@ class NiagaraBQLAdapter {
               const sourceOrd = record.get('source')
               const sourcePath = sourceOrd ? sourceOrd.toString() : ''
               
-              // Skip normal state alarms
-              if (sourceState === 'normal') {
-                return
-              }
+              // Determine if alarm is active (offnormal) or resolved (normal)
+              const isActive = sourceState.toLowerCase() !== 'normal'
               
               // Parse alarmData string (key=value,key=value format)
               // Example: fromState=normal,numericValue=1,presentValue=Active,toState=offnormal,sourceName=HP35 no_GenericAlarm,Location=Kitchen
@@ -2267,13 +2208,13 @@ class NiagaraBQLAdapter {
                 source: sourceName || `${equipmentName} - ${pointName}`,
                 message: message,
                 priority: priority,
-                state: toState || sourceState,
+                state: sourceState, // Use raw sourceState (offnormal, normal, etc.)
                 ackState: ackState,
                 timestamp: alarmTimestamp.toISOString(),
                 alarmClass: alarmClass,
                 alarmClassFriendly: friendlyClass,
                 location: location,
-                active: true,
+                active: isActive, // true if offnormal, false if normal
                 acknowledged: ackState && ackState.toLowerCase().includes('ack'),
                 equipmentId: equipmentId
               }

@@ -137,17 +137,22 @@ const healthScore = computed(() => {
   // Calculate health based on alarms and equipment status
   let score = 100
   
-  // Deduct for alarms (more reasonable penalties)
-  score -= criticalCount.value * 10  // Critical: -10 each
-  score -= highCount.value * 5       // High: -5 each
-  score -= mediumCount.value * 1     // Medium: -1 each (was -5, too harsh)
+  // Cap alarm impact - use logarithmic scale to avoid 0% with many alarms
+  // Critical: max -30 impact, High: max -20, Medium: max -20
+  const criticalImpact = Math.min(30, criticalCount.value * 15)
+  const highImpact = Math.min(20, highCount.value * 5)
+  const mediumImpact = Math.min(20, Math.log10(mediumCount.value + 1) * 10)
   
-  // Deduct for offline equipment (cap at 30% impact)
+  score -= criticalImpact
+  score -= highImpact
+  score -= mediumImpact
+  
+  // Deduct for offline equipment (cap at 20% impact)
   const offlineCount = totalEquipment.value - onlineEquipment.value
-  const offlinePercent = (offlineCount / totalEquipment.value) * 30
+  const offlinePercent = Math.min(20, (offlineCount / totalEquipment.value) * 20)
   score -= offlinePercent
   
-  return Math.max(0, Math.min(100, Math.round(score)))
+  return Math.max(10, Math.min(100, Math.round(score))) // Min 10% to avoid looking broken
 })
 
 const healthClass = computed(() => {

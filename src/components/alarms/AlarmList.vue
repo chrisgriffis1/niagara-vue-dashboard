@@ -65,13 +65,14 @@
               <span v-if="alarm.state" class="alarm-state">
                 State: {{ alarm.state }}
               </span>
-              <span 
+              <button 
                 v-if="alarm.equipmentId" 
-                class="equipment-link"
+                class="go-to-equipment-btn"
                 @click="handleEquipmentClick(alarm.equipmentId)"
+                title="Click to view this equipment"
               >
-                📍 {{ getEquipmentName(alarm.equipmentId) }}
-              </span>
+                📍 Go to {{ getEquipmentName(alarm.equipmentId) }} →
+              </button>
               <span class="alarm-timestamp">
                 {{ formatTime(alarm.timestamp) }}
               </span>
@@ -506,6 +507,33 @@ const handleEquipmentClick = (equipmentId) => {
 
 .equipment-link:hover {
   color: var(--color-accent-hover);
+}
+
+.go-to-equipment-btn {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  box-shadow: 0 2px 4px rgba(59, 130, 246, 0.3);
+}
+
+.go-to-equipment-btn:hover {
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(59, 130, 246, 0.4);
+}
+
+.go-to-equipment-btn:active {
+  transform: translateY(0);
 }
 
 /* Actions */
