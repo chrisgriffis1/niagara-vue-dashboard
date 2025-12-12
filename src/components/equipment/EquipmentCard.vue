@@ -345,17 +345,20 @@ const loadMiniChartData = async () => {
       }
     }
     
+    // Filter out any null/undefined points first
+    const validPoints = loadedPoints.filter(p => p && p.name)
+    
     // Pick primary point - prioritize temperature points with history
     // Most likely to have interesting sparkline data
     primaryPoint.value = 
-      loadedPoints.find(p => p.hasHistory && p.name?.toLowerCase().includes('temp')) ||
-      loadedPoints.find(p => p.hasHistory && p.name?.toLowerCase().includes('space')) ||
-      loadedPoints.find(p => p.hasHistory && p.name?.toLowerCase().includes('supply')) ||
-      loadedPoints.find(p => p.hasHistory && p.trendable) ||
-      loadedPoints.find(p => p.hasHistory) ||
-      loadedPoints.find(p => ['Temperature', 'Pressure', 'Flow'].includes(p.type)) ||
-      loadedPoints.find(p => p.trendable) ||
-      loadedPoints[0]
+      validPoints.find(p => p.hasHistory && p.name.toLowerCase().includes('temp')) ||
+      validPoints.find(p => p.hasHistory && p.name.toLowerCase().includes('space')) ||
+      validPoints.find(p => p.hasHistory && p.name.toLowerCase().includes('supply')) ||
+      validPoints.find(p => p.hasHistory && p.trendable) ||
+      validPoints.find(p => p.hasHistory) ||
+      validPoints.find(p => p.type && ['Temperature', 'Pressure', 'Flow'].includes(p.type)) ||
+      validPoints.find(p => p.trendable) ||
+      validPoints[0]
     
     if (!primaryPoint.value) {
       loadingMiniChart.value = false

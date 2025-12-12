@@ -176,6 +176,14 @@ class NiagaraBQLAdapter {
         // Mark as initialized immediately for instant UI
         this.initialized = true;
 
+        // IMMEDIATELY cache history IDs for fast sparkline loading (BEFORE UI renders)
+        console.log('📊 Pre-caching history IDs for sparklines...');
+        this._cacheAllHistoryIds().then(() => {
+          console.log(`📊 History ID cache ready: ${this.historyIdCache.size} entries`);
+        }).catch(err => {
+          console.warn('⚠️ History ID caching failed:', err);
+        });
+
         // IMMEDIATELY refresh alarms - don't wait for background
         console.log('🔔 Fetching fresh alarms...');
         this._startAlarmMonitoring().then(() => {
@@ -271,6 +279,53 @@ class NiagaraBQLAdapter {
     }
   }
   
+  /**
+   * Fast cache of ALL history IDs for instant sparkline lookups
+   * Called immediately on startup before UI renders
+   * @private
+   */
+  async _cacheAllHistoryIds() {
+    const baja = this._getBaja()
+    if (!baja) return
+    
+    try {
+      const historyBql = "station:|slot:/|bql:select slotPath as 'slotPath\\',id as 'id\\' from history:HistoryConfig"
+      const table = await baja.Ord.make(historyBql).get()
+      if (!table || !table.cursor) return
+      
+      const self = this
+      await new Promise(resolve => {
+        table.cursor({
+          limit: 5000,
+          each: function(record) {
+            try {
+              const slotPath = record.get('slotPath')?.toString() || ''
+              const historyId = record.get('id')?.toString() || ''
+              
+              if (slotPath && historyId) {
+                // Extract equipment name and point name from slotPath
+                // Format: slot:/Drivers/BacnetNetwork/HP12/points/Monitor/no_CtrlSpaceTemp/NumericCov/historyConfig
+                const equipMatch = slotPath.toLowerCase().match(/bacnetnetwork\/([^/]+)/)
+                if (equipMatch) {
+                  const equipName = equipMatch[1]
+                  const pointMatch = slotPath.match(/\/([^/]+)\/(NumericCov|BooleanCov|EnumCov|StringCov)/i)
+                  if (pointMatch) {
+                    const pointName = pointMatch[1]
+                    const cacheKey = `${equipName}_${pointName}`.toLowerCase()
+                    self.historyIdCache.set(cacheKey, historyId)
+                  }
+                }
+              }
+            } catch (e) {}
+          },
+          after: resolve
+        })
+      })
+    } catch (e) {
+      console.warn('History ID caching error:', e)
+    }
+  }
+
   /**
    * Setup automatic alarm refresh every 10 minutes
    * @private
@@ -1323,17 +1378,34 @@ class NiagaraBQLAdapter {
       const equipmentName = point.equipmentId || pathParts[2]; // e.g., "HP12"
       const slotName = pathParts[pathParts.length - 1]; // Last part of path, e.g., "no_CtrlSpaceTemp"
       
+      // Check history ID cache FIRST (populated by _backgroundLoadHistoryPoints)
+      const cacheKey = `${equipmentName}_${slotName}`.toLowerCase()
+      const cachedId = this.historyIdCache.get(cacheKey)
+      if (cachedId) {
+        console.log(`  ✓ Cache hit for history ID: ${cacheKey} -> ${cachedId}`)
+        return cachedId
+      }
+      
+      // Also try with point name if different from slotName
+      if (point.name && point.name !== slotName) {
+        const altCacheKey = `${equipmentName}_${point.name}`.toLowerCase()
+        const altCachedId = this.historyIdCache.get(altCacheKey)
+        if (altCachedId) {
+          console.log(`  ✓ Cache hit (alt) for history ID: ${altCacheKey} -> ${altCachedId}`)
+          return altCachedId
+        }
+      }
+      
+      // Cache miss - fall back to BQL query (slower)
+      console.log(`  🔍 Cache miss, querying history for: ${equipmentName}/${slotName}`)
+      
       // Escape single quotes for BQL (SQL-style: ' becomes '')
       const escapedEquipment = equipmentName.replace(/'/g, "''");
       const escapedSlotName = slotName.replace(/'/g, "''");
       
-      // Use BQL to find HistoryConfig - EXACT pattern from 04-bql-device-fuzzy-matching.html line 629
-      // Query from station root (station:|slot:/) not /Drivers - this is how you discovered histories on your station!
+      // Use BQL to find HistoryConfig
       const bqlQuery = `select toString as 'To String\\',id as 'id\\',slotPath as 'slotPath' from history:HistoryConfig where slotPath like '%/${escapedEquipment}/%' and slotPath like '%${escapedSlotName}%'`;
       const bqlOrd = `station:|slot:/|bql:${bqlQuery}`;
-      
-      // Reduced logging - only log if debugging needed
-      // console.log(`  🔍 Finding history for ${point.id}: ${equipmentName}/${slotName}`);
       
       const table = await baja.Ord.make(bqlOrd).get();
       if (!table || !table.cursor) {
@@ -1976,7 +2048,7 @@ class NiagaraBQLAdapter {
     console.log('🔄 Starting background history point loading...')
     
     try {
-      // Query all history configs to find which equipment have histories
+      // Query all history configs - get both slotPath and ID for cache
       const historyBql = "station:|slot:/|bql:select slotPath as 'slotPath\\',id as 'id\\' from history:HistoryConfig"
       
       const table = await baja.Ord.make(historyBql).get()
@@ -1987,6 +2059,7 @@ class NiagaraBQLAdapter {
       
       const historyPaths = new Set()
       const equipmentWithHistory = new Set()
+      const self = this
       
       await new Promise(resolve => {
         table.cursor({
@@ -1994,13 +2067,33 @@ class NiagaraBQLAdapter {
           each: function(record) {
             try {
               const slotPath = record.get('slotPath')?.toString() || ''
-              if (slotPath) {
+              const historyId = record.get('id')?.toString() || ''
+              
+              if (slotPath && historyId) {
                 historyPaths.add(slotPath.toLowerCase())
-                // Extract equipment ID from history path
+                
+                // Extract equipment ID and point name from slotPath
+                // Format: slot:/Drivers/BacnetNetwork/HP12/points/Monitor/no_CtrlSpaceTemp/NumericCov/historyConfig
                 const parts = slotPath.split('/')
                 for (const part of parts) {
                   if (part && part.length > 0) {
                     equipmentWithHistory.add(part.toLowerCase())
+                  }
+                }
+                
+                // Cache history ID for fast sparkline lookup
+                // Key format: "equipmentId_pointName" (case insensitive)
+                const slotLower = slotPath.toLowerCase()
+                // Extract equipment name (after BacnetNetwork/)
+                const equipMatch = slotLower.match(/bacnetnetwork\/([^/]+)/)
+                if (equipMatch) {
+                  const equipName = equipMatch[1]
+                  // Find point name (before /NumericCov or /BooleanCov etc)
+                  const pointMatch = slotPath.match(/\/([^/]+)\/(NumericCov|BooleanCov|EnumCov|StringCov)/i)
+                  if (pointMatch) {
+                    const pointName = pointMatch[1]
+                    const cacheKey = `${equipName}_${pointName}`.toLowerCase()
+                    self.historyIdCache.set(cacheKey, historyId)
                   }
                 }
               }
@@ -2012,7 +2105,7 @@ class NiagaraBQLAdapter {
         })
       })
       
-      console.log(`🔄 Found ${historyPaths.size} history configs`)
+      console.log(`🔄 Found ${historyPaths.size} history configs, cached ${this.historyIdCache.size} history IDs`)
       
       // Mark equipment that likely has history
       for (const equip of this.equipment) {
