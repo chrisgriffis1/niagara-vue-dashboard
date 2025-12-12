@@ -15,18 +15,26 @@
     </Transition>
 
     <!-- Floating Action Button for quick actions -->
-    <div class="fab-container" v-if="showBuildingView">
+    <div class="fab-container">
       <button class="fab fab-main" @click="toggleFabMenu" :class="{ active: fabMenuOpen }">
         <span class="fab-icon">⚡</span>
       </button>
       <Transition name="fab-menu">
         <div v-if="fabMenuOpen" class="fab-menu">
           <button class="fab fab-item" @click="scrollToTop" title="Scroll to top">↑</button>
-          <button class="fab fab-item" @click="openFilters" title="Filters">🔍</button>
+          <button class="fab fab-item" @click="openFilters" title="Filters" v-if="showBuildingView">🔍</button>
           <button class="fab fab-item" @click="refreshData" title="Refresh">🔄</button>
+          <button class="fab fab-item feedback-btn" @click="openFeedback" title="Send Feedback">📝</button>
         </div>
       </Transition>
     </div>
+    
+    <!-- Feedback Modal -->
+    <FeedbackModal 
+      :isOpen="showFeedbackModal" 
+      @close="showFeedbackModal = false"
+      @submitted="onFeedbackSubmitted"
+    />
 
     <header class="app-header">
       <div>
@@ -122,6 +130,7 @@ import { ref, onMounted, watch } from 'vue'
 import MockDataAdapter from './adapters/MockDataAdapter'
 import NiagaraBQLAdapter from './adapters/NiagaraBQLAdapter'
 import BuildingView from './views/BuildingView.vue'
+import FeedbackModal from './components/FeedbackModal.vue'
 import { useDeviceStore } from './stores/deviceStore'
 import {
   cacheDashboardState,
@@ -185,10 +194,20 @@ const loadingProgress = ref(0)
 
 // FAB state
 const fabMenuOpen = ref(false)
+const showFeedbackModal = ref(false)
 
 // FAB methods
 const toggleFabMenu = () => {
   fabMenuOpen.value = !fabMenuOpen.value
+}
+
+const openFeedback = () => {
+  fabMenuOpen.value = false
+  showFeedbackModal.value = true
+}
+
+const onFeedbackSubmitted = (data) => {
+  console.log('✓ Feedback submitted:', data)
 }
 
 const scrollToTop = () => {
@@ -747,6 +766,16 @@ const testAdapter = async () => {
 .fab-item:hover {
   background: rgba(59, 130, 246, 0.3);
   border-color: #3b82f6;
+}
+
+.fab-item.feedback-btn {
+  background: rgba(139, 92, 246, 0.2);
+  border-color: rgba(139, 92, 246, 0.4);
+}
+
+.fab-item.feedback-btn:hover {
+  background: rgba(139, 92, 246, 0.4);
+  border-color: #8b5cf6;
 }
 
 /* FAB menu animation */
