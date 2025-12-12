@@ -846,17 +846,27 @@ class NiagaraBQLAdapter {
    * @private
    */
   _filterAndPrioritizePoints(points) {
-    // Define low-priority prefixes (BACnet network variable prefixes, internal points, etc.)
+    // Define low-priority prefixes (BACnet network variables, internal points, config, etc.)
     const lowPriorityPrefixes = [
       'nvo', 'nvi', 'no_', 'ni_',           // BACnet network variables
       'inhibit', 'clear', 'enable',          // Control flags
-      'genb', '_mstp',                       // Internal
-      'inspace', 'insupply', 'in',           // Input references
-      'or', 'not', 'next',                   // Logic
+      'genb', '_mstp', 'mstp',               // Internal/MSTP
+      'inspace', 'insupply',                 // Input references (but not 'in' alone - too broad)
       'occstatein', 'tuncos', 'equal',       // Schedule/tuning
-      'cfg_'                                 // Config
+      'cfg_', 'cfg',                         // Config points
+      'breaker',                             // Electrical metadata
+      'brand', 'model', 'serial',            // Equipment metadata
+      'password', 'network', 'address',      // Network config
+      'slot', 'driver'                       // System
     ];
-    const lowPriorityTypes = ['Unknown', 'Command'];
+    
+    // Patterns to match anywhere in name (not just start)
+    const lowPriorityContains = [
+      'inhibit', 'override', 'manual', 'test', 'debug',
+      'config', 'setup', 'calibration'
+    ];
+    
+    const lowPriorityTypes = ['Unknown', 'Command', 'Config'];
     
     // Separate high and low priority points
     const highPriority = [];
@@ -866,12 +876,14 @@ class NiagaraBQLAdapter {
     points.forEach(point => {
       const nameLower = (point.name || '').toLowerCase();
       
-      // Check for low-priority prefixes (must match at start or with _ separator)
-      const isLowPriority = lowPriorityPrefixes.some(prefix => {
-        const prefixLower = prefix.toLowerCase();
-        return nameLower.startsWith(prefixLower) || nameLower.includes('_' + prefixLower);
-      });
+      // Check for low-priority prefixes
+      const hasLowPrefix = lowPriorityPrefixes.some(prefix => nameLower.startsWith(prefix.toLowerCase()));
+      
+      // Check for low-priority patterns anywhere in name
+      const hasLowPattern = lowPriorityContains.some(pattern => nameLower.includes(pattern.toLowerCase()));
+      
       const isLowType = lowPriorityTypes.includes(point.type);
+      const isLowPriority = hasLowPrefix || hasLowPattern;
       
       if (isLowPriority || isLowType) {
         point.priority = 'low';
@@ -2038,15 +2050,14 @@ class NiagaraBQLAdapter {
     this.alarmCallbacks = []
     
     try {
-      // Try multiple alarm query approaches based on user's working queries
-      // Key insight: alarm:|bql: queries work, need to check alarmData.toState
+      // Use user's working alarm query with msgText for better messages
       const alarmQueries = [
-        // User's working pattern - query all alarm classes
-        "alarm:|bql:select timestamp, alarmClass, alarmData.sourceName, alarmData.toState, alarmData.presentValue, sourceState, ackState where alarmData.toState = 'offnormal' or alarmData.toState = 'highLimit' order by timestamp DESC",
-        // Simpler query for any active alarms
-        "alarm:|bql:select timestamp, alarmClass, sourceName, sourceState, ackState, alarmData where sourceState != 'normal' order by timestamp DESC",
-        // Fallback: all alarms
-        "alarm:|bql:select timestamp, alarmClass, sourceName, sourceState, ackState order by timestamp DESC"
+        // User's WORKING query - includes msgText for actual alarm message
+        "alarm:|bql:select timestamp, alarmData.sourceName, sourceState, ackState, ackRequired, alarmData.msgText, alarmClass order by timestamp desc",
+        // Alternate with presentValue
+        "alarm:|bql:select timestamp, alarmClass, alarmData.sourceName, alarmData.toState, alarmData.presentValue, alarmData.msgText, sourceState, ackState where alarmData.toState = 'offnormal' or alarmData.toState = 'highLimit' order by timestamp DESC",
+        // Fallback without msgText
+        "alarm:|bql:select timestamp, alarmClass, alarmData.sourceName, sourceState, ackState order by timestamp DESC"
       ]
       
       let table = null
@@ -2097,35 +2108,37 @@ class NiagaraBQLAdapter {
               const alarmClass = record.get('alarmClass')?.toString() || ''
               const timestamp = record.get('timestamp')?.toString() || ''
               
-              // sourceName can be in alarmData.sourceName or directly
-              let sourceName = record.get('sourceName')?.toString() || ''
-              let toState = ''
-              let presentValue = ''
-              let alarmData = ''
+              // Get fields directly from BQL result (alarmData.* fields)
+              let sourceName = record.get('alarmData.sourceName')?.toString() || record.get('sourceName')?.toString() || ''
+              let msgText = record.get('alarmData.msgText')?.toString() || ''
+              let toState = record.get('alarmData.toState')?.toString() || ''
+              let presentValue = record.get('alarmData.presentValue')?.toString() || ''
+              let ackRequired = record.get('ackRequired')?.toString() || ''
               
-              // Try to get alarmData fields
-              try {
-                const alarmDataObj = record.get('alarmData')
-                if (alarmDataObj) {
-                  alarmData = alarmDataObj.toString?.() || ''
-                  if (!sourceName) {
-                    sourceName = alarmDataObj.get?.('sourceName')?.toString() || alarmDataObj.sourceName || ''
-                  }
-                  toState = alarmDataObj.get?.('toState')?.toString() || alarmDataObj.toState || ''
-                  presentValue = alarmDataObj.get?.('presentValue')?.toString() || alarmDataObj.presentValue || ''
-                }
-              } catch (e) {
-                // alarmData might be a string
-                const alarmDataStr = record.get('alarmData')?.toString() || ''
-                alarmData = alarmDataStr
-                if (alarmDataStr && !sourceName) {
-                  sourceName = alarmDataStr
-                }
+              // Debug log to see what we're getting
+              if (msgText) {
+                console.log(`🔔 Alarm msgText: "${msgText}" source: "${sourceName}"`)
               }
               
-              // Also try alarmData.sourceName directly from BQL
-              if (!sourceName) {
-                sourceName = record.get('alarmData.sourceName')?.toString() || ''
+              // Also try alarmData as object if direct fields didn't work
+              if (!sourceName || !msgText) {
+                try {
+                  const alarmDataObj = record.get('alarmData')
+                  if (alarmDataObj) {
+                    if (!sourceName) {
+                      sourceName = alarmDataObj.get?.('sourceName')?.toString() || ''
+                    }
+                    if (!msgText) {
+                      msgText = alarmDataObj.get?.('msgText')?.toString() || ''
+                    }
+                    if (!toState) {
+                      toState = alarmDataObj.get?.('toState')?.toString() || ''
+                    }
+                    if (!presentValue) {
+                      presentValue = alarmDataObj.get?.('presentValue')?.toString() || ''
+                    }
+                  }
+                } catch (e) {}
               }
               
               // Skip if normal state
@@ -2155,9 +2168,13 @@ class NiagaraBQLAdapter {
                 .replace(/([a-z])([A-Z])/g, '$1 $2') // CamelCase to spaces
                 .trim()
               
-              // Create message from available data
-              let message = alarmData || sourceName || ''
-              if (!message || message === 'Alarm') {
+              // Create message - prioritize msgText (actual alarm message)
+              let message = ''
+              if (msgText && msgText !== 'null') {
+                message = msgText
+              } else if (sourceName) {
+                message = sourceName
+              } else {
                 // Build message from class and state
                 message = friendlyClass
                 if (stateLower && stateLower !== 'offnormal') {

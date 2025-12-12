@@ -1,0 +1,771 @@
+new (require("baja/alarm/AlarmArchiveSpace"))()
+Represents a alarm:AlarmArchiveSpace in BajaScript.
+
+Extends:
+baja.NavNodeContainer
+Methods
+ackAlarms( [params] [, obj])
+Acknowledge a group of alarms by id and/or source
+
+Parameters:
+Name	Type	Argument	Description
+params	Object	<optional>
+Properties
+Name	Type	Argument	Description
+ids	Array.<String>	<optional>
+Array of encoded baja:Uuid strings representing alarm ids
+
+srcs	Array.<String>	<optional>
+Array of encoded baja.Ord strings representing sources
+
+obj	Object	<optional>
+The object literal.
+
+Properties
+Name	Type	Argument	Description
+ok	function	<optional>
+(Deprecated: use Promise) Called once mapping
+has been created.
+
+fail	function	<optional>
+(Deprecated: use Promise) Called if the
+mapping cannot be created.
+
+Returns:
+Promise resolved when alarms have been acknowledged
+
+Type
+Promise
+addNote(alarm, note, obj)
+Add a note to an alarm record
+
+Parameters:
+Name	Type	Description
+alarm		
+The alarm record to which to add the note
+
+note		
+obj		
+Returns:
+Type
+Promise
+addNoteToAlarms( [params] [, obj])
+Add notes to a number of alarms by id and/or source.
+
+Parameters:
+Name	Type	Argument	Description
+params	Object	<optional>
+Properties
+Name	Type	Argument	Description
+ids	Array.<String>	<optional>
+Array of encoded baja:Uuid strings representing alarm ids
+
+srcs	Array.<String>	<optional>
+Array of encoded baja.Ord strings representing sources
+
+a	boolean	<optional>
+value set as true to show that the view is invoked over the alarm archive space
+
+obj	Object	<optional>
+The object literal.
+
+Properties
+Name	Type	Argument	Description
+ok	function	<optional>
+(Deprecated: use Promise) Called once the request has completed.
+
+fail	function	<optional>
+(Deprecated: use Promise) Called if the request fails.
+
+Returns:
+Promise resolved once the call is complete.
+
+Type
+Promise
+clearAllRecords( [obj])
+Clear all the records from the alarm database.
+
+Parameters:
+Name	Type	Argument	Description
+obj	Object	<optional>
+The object literal.
+
+Properties
+Name	Type	Argument	Description
+ok	function	<optional>
+(Deprecated: use Promise) Called once the
+records have been successfully cleared.
+
+fail	function	<optional>
+(Deprecated: use Promise) Called if the
+alarm devices fails to resolve.
+
+batch	baja.comm.Batch	<optional>
+if defined, any network calls will be
+batched into this object.
+
+Returns:
+A promise that's resolved once all of the records have
+been cleared.
+
+Type
+Promise
+clearOldRecords( [beforeTime] [, obj])
+Clear all records with a timestamp before the specified time.
+Also update the totalAlarmCount, unackedAlarmCount, openAlarmCount,
+and inAlarmCount properties all BAlarmClasses.
+
+Parameters:
+Name	Type	Argument	Description
+beforeTime	baja.AbsTime	<optional>
+The earliest time to keep in the result.
+Records before this time will be removed.
+
+obj	Object	<optional>
+The object literal.
+
+Properties
+Name	Type	Argument	Description
+ok	function	<optional>
+(Deprecated: use Promise) Called once the
+records have been successfully cleared.
+
+fail	function	<optional>
+(Deprecated: use Promise) Called if the alarm
+devices fails to resolve.
+
+batch	baja.comm.Batch	<optional>
+if defined, any network calls will be
+batched into this object.
+
+Returns:
+A promise that's resolved once all of the records have
+been cleared.
+
+Type
+Promise
+clearRecords(uuids [, obj])
+Clear the record with the given uuid.
+Also update the totalAlarmCount, unackedAlarmCount, openAlarmCount,
+and inAlarmCount properties all BAlarmClasses.
+
+Parameters:
+Name	Type	Argument	Description
+uuids	Array		
+An array of encoded uuids to remove from the database
+
+obj	Object	<optional>
+The object literal.
+
+Properties
+Name	Type	Argument	Description
+ok	function	<optional>
+(Deprecated: use Promise) Called once the
+records have been successfully cleared.
+
+fail	function	<optional>
+(Deprecated: use Promise) Called if the alarm
+devices fails to resolve.
+
+batch	baja.comm.Batch	<optional>
+if defined, any network calls will be
+batched into this object.
+
+Returns:
+A promise that's resolved once all of the records have
+been cleared.
+
+Type
+Promise
+equals(obj)
+Indicates whether some other object is equal to this one.
+
+Parameters:
+Name	Type	Description
+obj	Object	
+the reference object with which to compare.
+
+Inherited From:
+baja.BaseBajaObj#equals
+Returns:
+true if this object is the same as the obj argument; false otherwise.
+
+Type
+Boolean
+equivalent(obj)
+Equivalence test.
+
+equivalent() is used to compare if two Objects have equivalent
+state, but might not want to return true for equals since it
+it has implied semantics for many operations. The default
+implementation returns the result of baja.Object#equals.
+
+Parameters:
+Name	Type	Description
+obj		
+Inherited From:
+baja.Object#equivalent
+Returns:
+Type
+Boolean
+forceClear( [params] [, obj])
+Force alarms clear by id and/or source.
+
+Parameters:
+Name	Type	Argument	Description
+params	Object	<optional>
+Properties
+Name	Type	Argument	Description
+ids	Array.<String>	<optional>
+Array of encoded baja:Uuid strings representing alarm ids
+
+srcs	Array.<String>	<optional>
+Array of encoded baja.Ord strings representing sources
+
+obj	Object	<optional>
+The object literal.
+
+Properties
+Name	Type	Argument	Description
+ok	function	<optional>
+(Deprecated: use Promise) Called once the request has completed.
+
+fail	function	<optional>
+(Deprecated: use Promise) Called if the request fails.
+
+Returns:
+Promise resolved once the call is complete.
+
+Type
+Promise
+getAbsoluteOrd()
+Return the Space's absolute ORD.
+
+Inherited From:
+baja.NavNodeContainer#getAbsoluteOrd
+Returns:
+The absolute ORD.
+
+Type
+baja.Ord
+getAgents( [is] [, batch])
+Returns a promise that resolves to the agent list for this Object.
+
+Parameters:
+Name	Type	Argument	Description
+is	Array.<String>	<optional>
+An optional array of filters to add to the
+agent query.
+
+batch	baja.comm.Batch	<optional>
+An optional object used to batch network
+calls together.
+
+Inherited From:
+baja.Object#getAgents
+See:
+baja.registry.getAgents
+Returns:
+A promise that will resolve with the Agent Info.
+
+Type
+Promise
+getAlarmFields( [obj])
+Returns an array of the declared fields in an alarm record
+
+Parameters:
+Name	Type	Argument	Description
+obj	Object	<optional>
+The object literal.
+
+Properties
+Name	Type	Argument	Description
+ok	function	<optional>
+(Deprecated: use Promise) Called once mapping
+has been created.
+
+fail	function	<optional>
+(Deprecated: use Promise) Called if the
+mapping cannot be created.
+
+batch	baja.comm.Batch	<optional>
+if defined, any network calls will be
+batched into this object
+
+Returns:
+Promise resolved with Array of Strings representing field names
+
+Type
+Promise.<Array.<String>>
+getDisplayNamesMap( [obj])
+Returns an object map of alarm class names -> alarm class display names
+
+Parameters:
+Name	Type	Argument	Description
+obj	Object	<optional>
+The object literal.
+
+Properties
+Name	Type	Argument	Description
+ok	function	<optional>
+(Deprecated: use Promise) Called once mapping
+has been created.
+
+fail	function	<optional>
+(Deprecated: use Promise) Called if the
+mapping cannot be created.
+
+batch	baja.comm.Batch	<optional>
+if defined, any network calls will be
+batched into this object
+
+Returns:
+Promise resolved with map object
+
+Type
+Promise.<Object>
+getIcon()
+Return the Object's Icon.
+
+Inherited From:
+baja.Object#getIcon
+Returns:
+Type
+baja.Icon
+getNavChildren(obj)
+Access the Nav Children.
+
+Parameters:
+Name	Type	Description
+obj	Object	
+the Object Literal for the method's arguments.
+
+Properties
+Name	Type	Argument	Description
+ok	function	<optional>
+(Deprecated: use Promise) called when we have
+the Nav Children. An array of Nav Children is passed as an argument into
+this function.
+
+fail	function	<optional>
+(Deprecated: use Promise) called if the
+function fails to complete.
+
+Inherited From:
+baja.NavNodeContainer#getNavChildren
+Returns:
+a promise that will be resolved
+once the nav children have been retrieved.
+
+Type
+Promise.<Array.<baja.NavNode>>
+Example
+aboutraw—
+1
+2
+3
+4
+5
+6
+7
+container.getNavChildren()
+    .then(function (kids) {
+      baja.outln('retrieved nav children: ' + kids.join());
+    })
+    .catch(function (err) {
+      baja.error('failed to retrieve nav children: ' + err);
+    });
+getNavDescription()
+Return the Nav Description.
+
+Inherited From:
+baja.NavContainer#getNavDescription
+Returns:
+Type
+String
+getNavDisplayName()
+Return the Nav Display Name.
+
+Inherited From:
+baja.NavContainer#getNavDisplayName
+Returns:
+Type
+String
+getNavIcon()
+Return the Nav Icon for this node.
+
+Inherited From:
+baja.NavContainer#getNavIcon
+Returns:
+Type
+baja.Icon
+getNavName()
+Return the Nav Name.
+
+Inherited From:
+baja.NavContainer#getNavName
+Returns:
+Type
+String
+getNavOrd( [params])
+Return the Nav ORD.
+
+If passing sessionAware, the returned ORD may return session information
+when BajaScript is running in Workbench (most commonly including the IP
+address and fox|foxs schemes). Note that a session-aware ORD is not safe
+to pass directly up to a station for resolution as in an RPC or servlet
+call, as a station won't know how to open a FOX session to itself.
+
+Parameters:
+Name	Type	Argument	Description
+params	object	<optional>
+Properties
+Name	Type	Argument	Description
+sessionAware	boolean	<optional>
+include session information if
+available
+
+Inherited From:
+baja.NavContainer#getNavOrd
+Returns:
+Type
+baja.Ord
+Examples
+When running in Workbench, connected to a station at ip:1.2.3.4, session information can be retrieved.
+
+aboutraw—
+1
+2
+3
+4
+console.log(services.getNavOrd());
+// local:|station:|slot:/Services
+console.log(services.getNavOrd({ sessionAware: true });
+// ip:1.2.3.4|fox:|station:|slot:/Services
+When running in a browser, session information is never present.
+
+aboutraw—
+1
+2
+3
+4
+console.log(services.getNavOrd());
+// local:|station:|slot:/Services
+console.log(services.getNavOrd({ sessionAware: true });
+// local:|station:|slot:/Services
+getNavParent()
+Return the Nav Parent (or null if there's no parent).
+
+Inherited From:
+baja.NavContainer#getNavParent
+Returns:
+Type
+baja.NavContainer
+getNavTypeSpec()
+Return the type spec of object this nav node navigates to.
+
+Inherited From:
+baja.NavContainer#getNavTypeSpec
+Returns:
+The nav type spec.
+
+Type
+String
+getNotes( [params] [, obj])
+Returns notes for an alarm record.
+
+Parameters:
+Name	Type	Argument	Description
+params	Object	<optional>
+Properties
+Name	Type	Argument	Description
+uuid	Array.<String>	<optional>
+Encoded baja:Uuid string representing an alarm id
+
+obj	Object	<optional>
+The object literal.
+
+Properties
+Name	Type	Argument	Description
+ok	function	<optional>
+(Deprecated: use Promise) Called once mapping
+has been created.
+
+fail	function	<optional>
+(Deprecated: use Promise) Called if the
+mapping cannot be created.
+
+batch	baja.comm.Batch	<optional>
+if defined, any network calls will be
+batched into this object
+
+Returns:
+Promise resolved with a notes string
+
+Type
+Promise.<String>
+getPermissions()
+Since:
+Niagara 4.14
+Inherited From:
+baja.NavContainer#getPermissions
+Throws:
+if this node is not a BIProtected
+
+Type
+Error
+Returns:
+Type
+baja.Permissions
+getPermissionsMap(alarmClasses [, obj])
+Returns an object map of alarm class names -> alarm class permissions
+
+Parameters:
+Name	Type	Argument	Description
+alarmClasses	Array.<String>		
+The alarm class names for displayed alarms.
+
+obj	Object	<optional>
+The object literal.
+
+Properties
+Name	Type	Argument	Description
+ok	function	<optional>
+(Deprecated: use Promise) Called once mapping
+has been created.
+
+fail	function	<optional>
+(Deprecated: use Promise) Called if the
+mapping cannot be created.
+
+batch	baja.comm.Batch	<optional>
+if defined, any network calls will be
+batched into this object
+
+Since:
+Niagara 4.9
+Returns:
+Promise resolved with map object
+
+Type
+Promise.<Object>
+getRecordCount(timeRange, filterSet [, obj])
+Query the alarm archive database for the count of alarm records within the given time range.
+
+Parameters:
+Name	Type	Argument	Description
+timeRange	baja.Simple		
+the bql:DynamicTimeRange to query
+
+filterSet			
+obj	Object	<optional>
+The object literal.
+
+Properties
+Name	Type	Argument	Description
+ok	function	<optional>
+(Deprecated: use Promise) Called once the request has completed.
+
+fail	function	<optional>
+(Deprecated: use Promise) Called if the request fails.
+
+batch	baja.comm.Batch	<optional>
+if defined, any network calls will be
+batched into this object.
+
+Returns:
+A promise that's resolved with the count of alarm records.
+
+Type
+Promise
+getSingleSourceSummary(params [, obj])
+Query summary alarms for a single source.
+
+Parameters:
+Name	Type	Argument	Description
+params	Object		
+Properties
+Name	Type	Argument	Description
+offset	Number		
+The query offset for the cursor. This is the index of where the cursor starts.
+
+limit	Number		
+The limit to the number of records downloaded.
+
+source			
+The alarm source.
+
+ord			
+The ORD for the recipient to query alarms from.
+
+filterSet		<optional>
+An optional filter set.
+
+timeRange		<optional>
+An optional time range filter.
+
+column	String	<optional>
+An optional column name to sort by. This can be an alarm record property name
+or prefixed with 'alarmData.' if sorting via an alarm data facets column. If not specified, the alarm data
+will be sorted by timestamp.
+
+sortDesc	Boolean	<optional>
+An optional flag used to indicate whether to sort by descending or ascending order.
+If not specified, the data will sort by descending order.
+
+obj	Object	<optional>
+The object literal.
+
+Properties
+Name	Type	Argument	Description
+ok	function	<optional>
+(Deprecated: use Promise) Called once the request has completed.
+
+fail	function	<optional>
+(Deprecated: use Promise) Called if the request fails.
+
+Returns:
+Promise resolved once the call is complete.
+
+Type
+Promise
+getType()
+Get the type of this instance.
+
+Inherited From:
+baja.Object#getType
+Returns:
+Type
+Type
+getTypeDisplayName( [cx])
+Gets the friendly type display name for this object.
+
+Parameters:
+Name	Type	Argument	Description
+cx	Object	<optional>
+a context to be passed down to Type
+
+Since:
+Niagara 4.10
+Inherited From:
+baja.Object#getTypeDisplayName
+See:
+baja.Type#getDisplayName
+Returns:
+If no context is provided, the type
+display name is returned synchronously as a string. If context provided,
+the type display name is resolved via a promise as a string.
+
+Type
+Promise.<string> | string
+queryAlarmDatabase(timeRange, limit, offset, filterSet, sortDescending, columnName [, obj])
+Query the alarm database for the given time range
+
+Parameters:
+Name	Type	Argument	Description
+timeRange	baja.Simple		
+the bql:DynamicTimeRange to query
+
+limit			
+offset			
+filterSet			
+sortDescending			
+columnName			
+obj	Object	<optional>
+The object literal.
+
+Properties
+Name	Type	Argument	Description
+ok	function	<optional>
+(Deprecated: use Promise) Called once the request has completed.
+
+fail	function	<optional>
+(Deprecated: use Promise) Called if the request fails.
+
+batch	baja.comm.Batch	<optional>
+if defined, any network calls will be
+batched into this object.
+
+Returns:
+A promise that's resolved once all of the records have
+been retrieved
+
+Type
+Promise
+toString( [cx])
+Returns the String representation of this Object.
+
+When implementing toString() on one of your own Objects, it should
+adhere to the following contract.
+
+When called with no arguments, it must return a string directly.
+It can also be called with an object literal. In this case, it may
+return a Promise to be resolved with a string, or it may return a string
+directly as normal. This case is sort of analogous to
+javax.baja.sys.Localizable#toString(Context).
+Therefore, when calling toString() on an Object of unknown Type using an
+object literal as an argument, it's important to wrap the call in
+Promise.resolve().
+
+Parameters:
+Name	Type	Argument	Description
+cx	Object	<optional>
+optional context information to be used when
+formatting the string
+
+Inherited From:
+baja.Object#toString
+Returns:
+a string (if no context passed), or
+either a string or a Promise (if context passed).
+
+Type
+String | Promise.<String>
+Examples
+When no context is passed, toString() must always return a string directly.
+
+aboutraw—
+1
+2
+var bool = comp.get('boolean');
+baja.outln(bool.toString()); // 'false'
+When a context is passed, some Objects may return a Promise.
+
+aboutraw—
+1
+2
+3
+4
+5
+var bool = comp.get('boolean');
+bool.toString({ trueText: 'Yes', falseText: 'No' })
+  .then(function (str) {
+    baja.outln(str); // 'No'
+  });
+If you don't know the type of the Object, use Promise.resolve() for safety.
+
+aboutraw—
+1
+2
+3
+4
+5
+6
+var displayFacets = comp.get('displayFacets'),
+    value = comp.get('value');
+Promise.resolve(value.toString(displayFacets.toObject()))
+  .then(function (str) {
+    baja.outln(str); // formatted according to displayFacets
+  });
+valueOf()
+Return the inner value of the object.
+
+By default the object's instance is returned.
+
+Inherited From:
+baja.BaseBajaObj#valueOf
+Returns:
+the inner value of the object or just the object's instance.
+
+Type
+*
