@@ -368,13 +368,14 @@ onMounted(async () => {
       
       console.log('📦 Initializing MockDataAdapter...')
       adapter = new MockDataAdapter()
-      await adapter.switchDataset('real')
-      console.log('✓ MockDataAdapter initialized with real dataset')
+      // Default to live station export (most recent/complete data)
+      await adapter.switchDataset('live')
+      console.log('✓ MockDataAdapter initialized with live station export')
       
       isNiagaraEnv.value = false
       // Get available datasets for selector
       availableDatasets.value = adapter.getAvailableDatasets()
-      currentDataset.value = 'real'
+      currentDataset.value = 'live'
     }
     
     loadingMessage.value = 'Preparing dashboard...'

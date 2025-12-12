@@ -20,9 +20,12 @@ class MockDataAdapter {
     this.initialized = false;
     
     // Dataset configuration - can be extended with exported Niagara data
+    // Note: Paths are relative to base URL (in dev mode, use import.meta.env.BASE_URL)
+    const base = typeof import.meta !== 'undefined' && import.meta.env?.BASE_URL || '';
     this.availableDatasets = [
-      { id: 'demo', name: 'Demo Data', file: '/mock-data/demo-site-profile.json.json' },
-      { id: 'real', name: 'Real Niagara Data', file: '/mock-data/firstTryNeedsWork.json' }
+      { id: 'demo', name: 'Demo Data', file: `${base}mock-data/demo-site-profile.json.json` },
+      { id: 'real', name: 'Real Niagara Data', file: `${base}mock-data/firstTryNeedsWork.json` },
+      { id: 'live', name: 'Live Station Export (Dec 12)', file: `${base}mock-data/live-station-export.json` }
     ];
     this.currentDataset = 'demo'; // Default to demo, can be switched
     this.alarms = []; // Alarms from exported data
