@@ -1265,7 +1265,8 @@ class NiagaraBQLAdapter {
 
   /**
    * Discover tstatLocation points and match them to equipment
-   * tstatLocation.out.value contains the actual room name (e.g., "Kitchen")
+   * tstatLocation.out.value contains the actual room name (e.g., "M-Dish", "Kitchen")
+   * Path pattern: /Drivers/BacnetNetwork/HP35/points/Monitor/tstatLocation
    * @private
    */
   async _discoverLocations() {
@@ -1275,13 +1276,17 @@ class NiagaraBQLAdapter {
     console.log('📍 Discovering tstatLocation points...')
     
     try {
-      // Query for tstatLocation points specifically - these have the room names
-      // Also query for points with "Location" in displayName as fallback
-      const locationBql = "station:|slot:/Drivers/BacnetNetwork|bql:select slotPath as 'slotPath\\',toString as 'toString\\',displayName as 'displayName\\',out as 'out\\' from control:ControlPoint where displayName like '*ocation*'"
+      // Query specifically for tstatLocation points - they have the room names in 'out'
+      // Format: out = "M-Dish {ok} @ def" where "M-Dish" is the room name
+      const locationBql = "station:|slot:/Drivers/BacnetNetwork|bql:select slotPath as 'slotPath\\',out as 'out\\',displayName as 'displayName\\' from control:ControlPoint where displayName like '*tstatLocation*'"
+      
+      console.log('📍 BQL:', locationBql)
       
       const table = await baja.Ord.make(locationBql).get()
       if (!table || !table.cursor) {
-        console.log('📍 No location points table returned')
+        console.log('📍 No tstatLocation points found, trying fallback query...')
+        // Fallback: try broader search
+        await this._discoverLocationsFallback()
         return
       }
       
@@ -1293,40 +1298,124 @@ class NiagaraBQLAdapter {
           each: function(record) {
             try {
               const slotPath = record.get('slotPath')?.toString() || ''
-              const toString = record.get('toString')?.toString() || ''
+              const outValue = record.get('out')?.toString() || ''
               const displayName = record.get('displayName')?.toString() || ''
               
-              if (slotPath) {
+              console.log(`📍 Found: ${displayName} = "${outValue}" at ${slotPath}`)
+              
+              if (slotPath && outValue) {
                 let cleanPath = slotPath.replace(/^slot:/, '').trim()
                 if (!cleanPath.startsWith('/')) cleanPath = '/' + cleanPath
                 
-                // Extract location value from toString (e.g., "Kitchen {ok}" -> "Kitchen")
-                let locationValue = toString.split('{')[0].trim()
-                if (!locationValue || locationValue === toString) {
-                  locationValue = toString.split('[')[0].trim()
-                }
-                // Remove any trailing status info like "@def"
-                locationValue = locationValue.replace(/\s*@.*$/, '').trim()
+                // Extract room name from out value
+                // Format: "M-Dish {ok} @ def" -> "M-Dish"
+                // Format: "Kitchen {ok}" -> "Kitchen"
+                let roomName = outValue.split('{')[0].trim()
                 
-                // Skip invalid location values
-                // Valid locations: "Kitchen", "Conference Room", "Lobby", etc.
-                // Invalid: numbers only, empty, "Unknown", too short
-                const isValidLocation = locationValue && 
-                  locationValue.length >= 2 &&
-                  locationValue !== 'Unknown' &&
-                  !/^\d+$/.test(locationValue) && // Skip pure numbers like "11"
-                  !/^Zone_/.test(locationValue) // Skip Zone_ folder names - these aren't room names
+                // Remove trailing @ info if still present
+                roomName = roomName.split('@')[0].trim()
                 
-                if (isValidLocation) {
-                  // Prioritize tstatLocation points (more likely to have room names)
-                  const isTstatLocation = /tstat.*location/i.test(displayName)
-                  
+                // Validate room name - must be a real name, not status/number
+                const isValidRoom = roomName && 
+                  roomName.length >= 2 &&
+                  roomName !== 'null' &&
+                  roomName !== '-' &&
+                  !/^\d+$/.test(roomName) // Not just a number
+                
+                if (isValidRoom) {
                   locationPoints.push({
                     path: cleanPath,
-                    value: locationValue,
-                    displayName: displayName,
-                    priority: isTstatLocation ? 10 : 1
+                    value: roomName,
+                    displayName: displayName
                   })
+                  console.log(`📍 Valid location: "${roomName}" for path ${cleanPath}`)
+                }
+              }
+            } catch (e) {
+              console.warn('📍 Error processing location record:', e)
+            }
+          },
+          after: function() {
+            resolve()
+          }
+        })
+      })
+      
+      console.log(`📍 Found ${locationPoints.length} tstatLocation points with room names`)
+      
+      // Match locations to equipment by equipment ID in path
+      let matchCount = 0
+      for (const equip of this.equipment) {
+        const equipId = equip.id || ''
+        const equipIdLower = equipId.toLowerCase()
+        
+        // Find tstatLocation for this equipment
+        // Equipment ID: HP35
+        // Location path: /Drivers/BacnetNetwork/HP35/points/Monitor/tstatLocation
+        for (const loc of locationPoints) {
+          const locPathLower = loc.path.toLowerCase()
+          
+          // Check if this tstatLocation belongs to this equipment
+          if (locPathLower.includes('/' + equipIdLower + '/')) {
+            equip.location = loc.value
+            
+            // Update display name: "M-Dish - HP35" format
+            if (equip.name && !equip.name.toLowerCase().includes(loc.value.toLowerCase())) {
+              equip.displayName = `${loc.value} - ${equip.name}`
+            }
+            
+            matchCount++
+            console.log(`📍 Matched: ${equip.id} → "${loc.value}"`)
+            break
+          }
+        }
+      }
+      
+      console.log(`📍 Location matching complete: ${matchCount}/${this.equipment.length} equipment have locations`)
+      
+    } catch (e) {
+      console.warn('⚠️ Error discovering locations:', e.message || e)
+    }
+  }
+  
+  /**
+   * Fallback location discovery using broader search
+   * @private
+   */
+  async _discoverLocationsFallback() {
+    const baja = this._getBaja()
+    if (!baja) return
+    
+    console.log('📍 Trying fallback location discovery...')
+    
+    try {
+      // Broader query for any Location-related points
+      const locationBql = "station:|slot:/Drivers/BacnetNetwork|bql:select slotPath as 'slotPath\\',out as 'out\\',displayName as 'displayName\\' from control:ControlPoint where displayName like '*ocation*'"
+      
+      const table = await baja.Ord.make(locationBql).get()
+      if (!table || !table.cursor) {
+        console.log('📍 No location points found')
+        return
+      }
+      
+      const locationPoints = []
+      
+      await new Promise(resolve => {
+        table.cursor({
+          limit: 2000,
+          each: function(record) {
+            try {
+              const slotPath = record.get('slotPath')?.toString() || ''
+              const outValue = record.get('out')?.toString() || ''
+              
+              if (slotPath && outValue) {
+                let cleanPath = slotPath.replace(/^slot:/, '').trim()
+                if (!cleanPath.startsWith('/')) cleanPath = '/' + cleanPath
+                
+                let roomName = outValue.split('{')[0].trim().split('@')[0].trim()
+                
+                if (roomName && roomName.length >= 2 && roomName !== '-' && roomName !== 'null') {
+                  locationPoints.push({ path: cleanPath, value: roomName })
                 }
               }
             } catch (e) {}
@@ -1337,65 +1426,28 @@ class NiagaraBQLAdapter {
         })
       })
       
-      // Sort by priority (tstatLocation points first)
-      locationPoints.sort((a, b) => b.priority - a.priority)
+      console.log(`📍 Fallback found ${locationPoints.length} location points`)
       
-      console.log(`📍 Found ${locationPoints.length} valid location points`)
-      
-      // Log samples for debugging
-      if (locationPoints.length > 0) {
-        const samples = locationPoints.slice(0, 5).map(l => 
-          `"${l.value}" from ${l.displayName} (${l.path.split('/').slice(-3).join('/')})`
-        )
-        console.log('📍 Sample locations:', samples)
-      }
-      
-      // Match locations to equipment
+      // Match to equipment
       let matchCount = 0
       for (const equip of this.equipment) {
-        const equipId = equip.id || ''
-        const equipIdLower = equipId.toLowerCase()
+        const equipIdLower = (equip.id || '').toLowerCase()
         
-        let bestMatch = null
-        let bestPriority = 0
-        
-        // Find highest priority location point for this equipment
         for (const loc of locationPoints) {
-          const locPathLower = loc.path.toLowerCase()
-          
-          // Check if location path contains equipment ID
-          if (locPathLower.includes('/' + equipIdLower + '/') || 
-              locPathLower.includes('/' + equipIdLower + '|')) {
-            if (loc.priority > bestPriority) {
-              bestMatch = loc.value
-              bestPriority = loc.priority
+          if (loc.path.toLowerCase().includes('/' + equipIdLower + '/')) {
+            equip.location = loc.value
+            if (equip.name && !equip.name.toLowerCase().includes(loc.value.toLowerCase())) {
+              equip.displayName = `${loc.value} - ${equip.name}`
             }
+            matchCount++
+            break
           }
-        }
-        
-        if (bestMatch) {
-          equip.location = bestMatch
-          
-          // Update display name: "[Room Name] - HP49" format
-          // Use location as prefix for equipment name
-          if (equip.name && !equip.name.toLowerCase().includes(bestMatch.toLowerCase())) {
-            equip.displayName = `${bestMatch} - ${equip.name}`
-          }
-          
-          matchCount++
         }
       }
       
-      console.log(`📍 Location matching: ${matchCount}/${this.equipment.length} matched`)
-      
-      // Debug: if low match rate, show info
-      if (matchCount < this.equipment.length / 2 && locationPoints.length > 0) {
-        console.log('📍 Debug - Low match rate')
-        console.log('📍 Sample equipment ID:', this.equipment[0]?.id)
-        console.log('📍 Sample location path:', locationPoints[0]?.path)
-      }
+      console.log(`📍 Fallback matching: ${matchCount}/${this.equipment.length}`)
     } catch (e) {
-      console.warn('⚠️ Error discovering locations:', e.message || e)
+      console.warn('⚠️ Fallback location error:', e)
     }
   }
   
@@ -1619,4 +1671,5 @@ class NiagaraBQLAdapter {
 }
 
 export default NiagaraBQLAdapter;
+
 
