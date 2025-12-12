@@ -17,10 +17,10 @@
 
     <!-- Equipment Stats -->
     <div class="equipment-stats">
-      <div class="stat-item">
-        <span class="stat-label">Points</span>
-        <span class="stat-value">{{ equipment.pointCount || 0 }}</span>
-      </div>
+        <div class="stat-item">
+          <span class="stat-label">Points</span>
+          <span class="stat-value">{{ pointCountLabel }}</span>
+        </div>
       <div class="stat-item">
         <span class="stat-label">Status</span>
         <span class="stat-value" :class="`status-${statusClass}`">
@@ -34,7 +34,7 @@
       <div class="points-header">
         <h4>Data Points</h4>
         <button 
-          v-if="equipment.pointCount > 0" 
+          v-if="showToggleButton" 
           @click.stop="togglePoints"
           class="toggle-btn"
         >
@@ -155,6 +155,18 @@ const miniChartData = ref([])
 const loadingMiniChart = ref(false)
 const primaryPoint = ref(null)
 const selectedMiniPoint = ref(null)
+const pointsLoaded = ref(false)
+
+const pointCountLabel = computed(() => {
+  if (allPointsCount.value > 0) return allPointsCount.value
+  if (pointsLoaded.value) return points.value.length
+  if (props.equipment.pointCount) return props.equipment.pointCount
+  return 'Tap to load'
+})
+
+const showToggleButton = computed(() => {
+  return props.equipment.pointCount > 0 || pointsLoaded.value || allPointsCount.value > 0
+})
 
 // Get trendable points (numeric types)
 const trendablePoints = computed(() => {
@@ -228,11 +240,10 @@ const togglePoints = async () => {
 const loadPoints = async (showAll = false) => {
   loading.value = true
   try {
-    // Load filtered points (Tesla-style: only important ones)
     const loadedPoints = await deviceStore.loadDevicePoints(props.equipment.id, { showAll })
     points.value = loadedPoints
+    pointsLoaded.value = true
     
-    // Get total count for "show more" button
     if (!showAll) {
       const allPoints = await deviceStore.loadDevicePoints(props.equipment.id, { showAll: true })
       allPointsCount.value = allPoints.length
