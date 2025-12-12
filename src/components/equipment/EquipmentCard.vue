@@ -290,6 +290,13 @@ const loadMiniChartData = async () => {
 const loadMiniChartForPoint = async (point) => {
   if (!point) return
   
+  // Skip if point doesn't have history configured
+  if (point.hasHistory === false) {
+    console.log(`Point ${point.name} has no history configured`)
+    miniChartData.value = []
+    return
+  }
+  
   loadingMiniChart.value = true
   try {
     const currentAdapter = adapter.value
@@ -302,9 +309,11 @@ const loadMiniChartForPoint = async (point) => {
     const now = new Date()
     // Use 90 days lookback for COV histories which may have sparse data
     const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
-    miniChartData.value = await currentAdapter.getHistoricalData(point.id, { start: ninetyDaysAgo, end: now })
+    // Pass full point object (with slotPath) for history lookup
+    miniChartData.value = await currentAdapter.getHistoricalData(point, { start: ninetyDaysAgo, end: now })
   } catch (error) {
     console.error('Failed to load mini-chart for point:', error)
+    miniChartData.value = []
   } finally {
     loadingMiniChart.value = false
   }
@@ -365,18 +374,38 @@ watch(() => props.equipment.id, () => {
 
 <style scoped>
 .equipment-card {
-  background-color: var(--color-bg-card);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.98));
+  border: 1px solid rgba(148, 163, 184, 0.1);
+  border-radius: 16px;
   padding: var(--spacing-lg);
-  transition: all var(--transition-fast);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   cursor: pointer;
+  backdrop-filter: blur(12px);
+  position: relative;
+  overflow: hidden;
+}
+
+.equipment-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(59, 130, 246, 0.5), transparent);
+  opacity: 0;
+  transition: opacity 0.3s ease;
 }
 
 .equipment-card:hover {
-  transform: translateY(-2px);
-  border-color: var(--color-border-light);
-  box-shadow: var(--shadow-md);
+  transform: translateY(-4px);
+  border-color: rgba(59, 130, 246, 0.3);
+  box-shadow: 0 20px 40px -12px rgba(0, 0, 0, 0.4), 
+              0 0 0 1px rgba(59, 130, 246, 0.1);
+}
+
+.equipment-card:hover::before {
+  opacity: 1;
 }
 
 /* Header Section */
@@ -417,28 +446,67 @@ watch(() => props.equipment.id, () => {
   color: var(--color-text-secondary);
 }
 
-/* Status Indicator */
+/* Status Indicator - Tesla style pulsing dot */
 .status-dot {
-  width: 12px;
-  height: 12px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   flex-shrink: 0;
   margin-top: var(--spacing-xs);
+  position: relative;
+}
+
+.status-dot::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  opacity: 0.3;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); opacity: 0.3; }
+  50% { transform: scale(1.3); opacity: 0.1; }
 }
 
 .status-dot.ok {
-  background-color: var(--color-success);
-  box-shadow: 0 0 8px var(--color-success);
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  box-shadow: 0 0 12px rgba(34, 197, 94, 0.6);
+}
+
+.status-dot.ok::after {
+  background: #22c55e;
 }
 
 .status-dot.warning {
-  background-color: var(--color-warning);
-  box-shadow: 0 0 8px var(--color-warning);
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.6);
+  animation: blink 1.5s ease-in-out infinite;
+}
+
+.status-dot.warning::after {
+  background: #f59e0b;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 .status-dot.error {
-  background-color: var(--color-error);
-  box-shadow: 0 0 8px var(--color-error);
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  box-shadow: 0 0 16px rgba(239, 68, 68, 0.7);
+  animation: urgent 0.8s ease-in-out infinite;
+}
+
+.status-dot.error::after {
+  background: #ef4444;
+}
+
+@keyframes urgent {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.2); }
 }
 
 /* Stats Section */
@@ -449,13 +517,25 @@ watch(() => props.equipment.id, () => {
   margin-bottom: var(--spacing-md);
 }
 
-/* Mini Chart Section */
+/* Mini Chart Section - Tesla style sparkline */
 .mini-chart-section {
   margin-bottom: var(--spacing-md);
-  padding: var(--spacing-sm);
-  background-color: var(--color-bg-primary);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--color-border);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.6), rgba(15, 23, 42, 0.8));
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.08);
+  position: relative;
+  overflow: hidden;
+}
+
+.mini-chart-section::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(59, 130, 246, 0.3), transparent);
 }
 
 .mini-chart-header {
@@ -488,36 +568,44 @@ watch(() => props.equipment.id, () => {
   transform: scale(1.05);
 }
 
-/* Point Selector Tabs */
+/* Point Selector Tabs - Tesla style pills */
 .point-tabs {
   display: flex;
-  gap: var(--spacing-xs);
+  gap: 6px;
   margin-bottom: var(--spacing-sm);
   flex-wrap: wrap;
+  padding: 4px;
+  background: rgba(15, 23, 42, 0.5);
+  border-radius: 8px;
 }
 
 .point-tab {
-  padding: var(--spacing-xs) var(--spacing-sm);
-  background-color: var(--color-bg-tertiary);
-  border: 1px solid var(--color-border);
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-xs);
-  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  background: transparent;
+  border: none;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 6px;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all 0.2s ease;
   min-height: unset;
+  white-space: nowrap;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .point-tab:hover {
-  background-color: var(--color-bg-hover);
-  border-color: var(--color-accent-primary);
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--color-text-secondary);
 }
 
 .point-tab.active {
-  background-color: var(--color-accent-primary);
-  border-color: var(--color-accent-primary);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.9), rgba(37, 99, 235, 0.9));
   color: white;
-  font-weight: var(--font-weight-semibold);
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
 }
 
 .stat-item {

@@ -16,6 +16,49 @@ class NiagaraBQLAdapter {
     this.subscribers = [];
     this.subscribedPoints = new Map(); // Map of equipmentId -> subscribed point component
     this.subscriber = null; // Main subscriber for live updates
+    this.alarms = [];
+    this.alarmCallbacks = [];
+    this.cacheKey = 'niagara_dashboard_cache';
+  }
+  
+  /**
+   * Save discovered data to localStorage cache
+   * @private
+   */
+  _saveToCache() {
+    try {
+      const cacheData = {
+        timestamp: Date.now(),
+        equipment: this.equipment,
+        // Don't cache points - they're loaded on demand
+      };
+      localStorage.setItem(this.cacheKey, JSON.stringify(cacheData));
+      console.log('💾 Saved equipment to cache');
+    } catch (e) {
+      console.warn('⚠️ Failed to save cache:', e);
+    }
+  }
+  
+  /**
+   * Load cached data from localStorage
+   * @private
+   */
+  _loadFromCache() {
+    try {
+      const cached = localStorage.getItem(this.cacheKey);
+      if (!cached) return null;
+      
+      const data = JSON.parse(cached);
+      // Cache expires after 1 hour
+      if (Date.now() - data.timestamp > 60 * 60 * 1000) {
+        console.log('📦 Cache expired, refreshing...');
+        return null;
+      }
+      
+      return data;
+    } catch (e) {
+      return null;
+    }
   }
 
   /**
@@ -55,15 +98,42 @@ class NiagaraBQLAdapter {
     console.log('🔄 Initializing Niagara BQL Adapter (fast mode)...');
     
     try {
-      // Tesla-style: Only discover equipment at startup - FAST!
-      // Points load lazily when user expands equipment card
-      console.log('📡 Discovering equipment...');
-      await this._discoverAllEquipment();
-      console.log(`✓ Found ${this.equipment.length} equipment items`);
+      // Try to load from cache first for instant startup
+      const cached = this._loadFromCache();
+      if (cached && cached.equipment && cached.equipment.length > 0) {
+        console.log('📦 Using cached equipment data...');
+        this.equipment = cached.equipment;
+        console.log(`✓ Loaded ${this.equipment.length} equipment from cache`);
+        
+        // Refresh data in background
+        this._discoverAllEquipment().then(() => {
+          this._saveToCache();
+          console.log('✓ Background refresh complete');
+        }).catch(e => console.warn('Background refresh failed:', e));
+      } else {
+        // Tesla-style: Only discover equipment at startup - FAST!
+        // Points load lazily when user expands equipment card
+        console.log('📡 Discovering equipment...');
+        await this._discoverAllEquipment();
+        console.log(`✓ Found ${this.equipment.length} equipment items`);
+        
+        // Save to cache
+        this._saveToCache();
+      }
+      
+      // Discover locations (parallel, non-blocking)
+      this._discoverLocations().catch(err => {
+        console.warn('⚠️ Location discovery failed:', err)
+      })
       
       // Start live subscriptions for equipment status (non-blocking)
       this._startLiveSubscriptions().catch(err => {
         console.warn('⚠️ Live subscriptions failed:', err)
+      })
+      
+      // Start alarm monitoring (non-blocking)
+      this._startAlarmMonitoring().catch(err => {
+        console.warn('⚠️ Alarm monitoring failed:', err)
       })
       
       this.initialized = true;
@@ -705,23 +775,32 @@ class NiagaraBQLAdapter {
   /**
    * Get historical data for trending
    */
-  async getHistoricalData(pointId, timeRange = {}) {
+  async getHistoricalData(pointIdOrObj, timeRange = {}) {
     if (!this.initialized) {
       await this.initialize();
     }
 
-    const point = this.pointsMap.get(pointId);
+    // Accept either point ID string or full point object
+    let point;
+    if (typeof pointIdOrObj === 'object' && pointIdOrObj !== null) {
+      // Full point object passed
+      point = pointIdOrObj;
+    } else {
+      // Point ID string - look up in map
+      point = this.pointsMap.get(pointIdOrObj);
+    }
     
-    if (!point || !point.trendable) {
+    if (!point) {
+      console.warn(`Point not found: ${pointIdOrObj}`);
       return [];
     }
 
     // Find history ID for this point
     // History IDs are typically the point's path relative to station root
-    const historyId = await this._findHistoryId(point);
+    const historyId = point.historyId || await this._findHistoryId(point);
     
     if (!historyId) {
-      console.warn(`No history found for point: ${pointId}`);
+      console.log(`No history found for point: ${point.id || pointIdOrObj}`);
       return [];
     }
 
@@ -1053,6 +1132,178 @@ class NiagaraBQLAdapter {
   }
 
   /**
+   * Discover Location points and match them to equipment
+   * Based on pattern from 04-bql-device-fuzzy-matching.html
+   * @private
+   */
+  async _discoverLocations() {
+    const baja = this._getBaja()
+    if (!baja) return
+    
+    console.log('📍 Discovering location points...')
+    
+    try {
+      // BQL query for Location points - pattern from 04-bql-device-fuzzy-matching.html
+      const locationBql = "station:|slot:/Drivers/BacnetNetwork|bql:select slotPath as 'slotPath\\',toString as 'toString\\' from control:ControlPoint where displayName like '*ocation*'"
+      
+      const table = await baja.Ord.make(locationBql).get()
+      if (!table || !table.cursor) {
+        console.log('📍 No location points found')
+        return
+      }
+      
+      const locationPoints = []
+      const self = this
+      
+      await new Promise(resolve => {
+        table.cursor({
+          limit: 1000,
+          each: function(record) {
+            try {
+              const slotPath = record.get('slotPath')?.toString() || ''
+              const toString = record.get('toString')?.toString() || ''
+              
+              if (slotPath) {
+                const cleanPath = slotPath.replace(/^slot:/, '').trim()
+                // Extract location value from toString (e.g., "Kitchen {ok}" -> "Kitchen")
+                let locationValue = toString.split('{')[0].trim()
+                if (!locationValue) {
+                  locationValue = toString.split('[')[0].trim()
+                }
+                
+                locationPoints.push({
+                  path: cleanPath,
+                  value: locationValue || 'Unknown'
+                })
+              }
+            } catch (e) {}
+          },
+          after: function() {
+            resolve()
+          }
+        })
+      })
+      
+      console.log(`📍 Found ${locationPoints.length} location points`)
+      
+      // Match locations to equipment
+      for (const equip of this.equipment) {
+        const equipPath = equip.ord || equip.slotPath || ''
+        const equipPathLower = equipPath.toLowerCase()
+        
+        // Find best matching location point
+        let bestMatch = null
+        let bestMatchLength = 0
+        
+        for (const loc of locationPoints) {
+          const locPathLower = loc.path.toLowerCase()
+          
+          // Check if location path contains equipment path
+          if (locPathLower.includes(equipPathLower) || equipPathLower.includes(locPathLower.split('/').slice(0, -1).join('/'))) {
+            const matchLength = loc.path.split('/').length
+            if (matchLength > bestMatchLength) {
+              bestMatch = loc.value
+              bestMatchLength = matchLength
+            }
+          }
+        }
+        
+        if (bestMatch && bestMatch !== 'Unknown') {
+          equip.location = bestMatch
+        }
+      }
+      
+      console.log('📍 Location discovery complete')
+    } catch (e) {
+      console.warn('⚠️ Error discovering locations:', e)
+    }
+  }
+  
+  /**
+   * Start alarm monitoring using alarm:AlarmService subscription
+   * @private
+   */
+  async _startAlarmMonitoring() {
+    const baja = this._getBaja()
+    if (!baja || !baja.Subscriber) {
+      console.log('⚠️ Alarm monitoring not available')
+      return
+    }
+    
+    console.log('🔔 Starting alarm monitoring...')
+    this.alarms = []
+    this.alarmCallbacks = []
+    
+    try {
+      // Query current alarms using BQL
+      const alarmBql = "station:|slot:/Services/AlarmService|bql:select * from alarm:AlarmRecord"
+      
+      const table = await baja.Ord.make(alarmBql).get()
+      if (!table) {
+        console.log('🔔 No alarm service or alarms found')
+        return
+      }
+      
+      const self = this
+      
+      await new Promise(resolve => {
+        table.cursor({
+          limit: 100,
+          each: function(record) {
+            try {
+              const uuid = record.get('uuid')?.toString() || ''
+              const sourceState = record.get('sourceState')?.toString() || ''
+              const ackState = record.get('ackState')?.toString() || ''
+              const alarmClass = record.get('alarmClass')?.toString() || ''
+              const timestamp = record.get('timestamp')?.toString() || ''
+              const sourceName = record.get('sourceName')?.toString() || ''
+              const alarmData = record.get('alarmData')?.toString() || ''
+              
+              // Parse priority from alarmClass
+              let priority = 'normal'
+              const classLower = (alarmClass || '').toLowerCase()
+              if (classLower.includes('critical') || classLower.includes('emergency')) {
+                priority = 'critical'
+              } else if (classLower.includes('warning') || classLower.includes('caution')) {
+                priority = 'warning'
+              }
+              
+              self.alarms.push({
+                id: uuid,
+                source: sourceName,
+                message: alarmData || sourceName,
+                priority: priority,
+                state: sourceState,
+                ackState: ackState,
+                timestamp: timestamp,
+                alarmClass: alarmClass
+              })
+            } catch (e) {}
+          },
+          after: function() {
+            resolve()
+          }
+        })
+      })
+      
+      console.log(`🔔 Found ${this.alarms.length} alarms`)
+      
+      // Notify any existing callbacks
+      this.alarmCallbacks.forEach(cb => cb(this.alarms))
+      
+    } catch (e) {
+      console.warn('⚠️ Error monitoring alarms:', e)
+    }
+  }
+  
+  /**
+   * Get current alarms
+   */
+  getAlarms() {
+    return this.alarms || []
+  }
+
+  /**
    * Get all unique equipment types
    */
   async getEquipmentTypes() {
@@ -1073,29 +1324,44 @@ class NiagaraBQLAdapter {
     }
 
     const equipmentTypes = await this.getEquipmentTypes();
-    const locations = [...new Set(this.equipment.map(e => e.location))].sort();
+    const locations = [...new Set(this.equipment.map(e => e.location).filter(l => l && l !== 'Unknown'))].sort();
 
     return {
       datasetName: 'Niagara Station (Live)',
       equipmentCount: this.equipment.length,
       pointCount: this.points.length,
-      scheduleCount: 0, // TODO: Discover schedules
-      historyCount: 0, // TODO: Count histories
+      scheduleCount: 0,
+      historyCount: 0,
       taggedComponentCount: 0,
       equipmentTypes: equipmentTypes,
       locations: locations,
+      alarmCount: (this.alarms || []).length,
       equipmentByType: {},
       pointTypes: {}
     };
   }
 
   /**
-   * Subscribe to alarms (WebSocket)
+   * Subscribe to alarms (callback receives array of alarms)
    */
   subscribeToAlarms(callback) {
-    // TODO: Implement WebSocket subscription to alarm service
-    console.warn('Alarm subscription not yet implemented');
-    return () => {}; // Return unsubscribe function
+    if (!this.alarmCallbacks) {
+      this.alarmCallbacks = []
+    }
+    this.alarmCallbacks.push(callback)
+    
+    // Immediately call with current alarms
+    if (this.alarms && this.alarms.length > 0) {
+      callback(this.alarms)
+    }
+    
+    // Return unsubscribe function
+    return () => {
+      const idx = this.alarmCallbacks.indexOf(callback)
+      if (idx > -1) {
+        this.alarmCallbacks.splice(idx, 1)
+      }
+    }
   }
 }
 
