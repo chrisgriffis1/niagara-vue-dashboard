@@ -39,6 +39,9 @@
         :unit="selectedMiniPoint?.unit"
         compact
       />
+      <div v-if="selectedMiniPoint && !loadingMiniChart" class="sparkline-label">
+        {{ selectedMiniPoint.name }}
+      </div>
     </div>
 
     <!-- Point-Device Value Display (for devices that ARE points) -->
@@ -347,15 +350,28 @@ const loadMiniChartData = async () => {
     
     // Filter out any null/undefined points first
     const validPoints = loadedPoints.filter(p => p && p.name)
+    const nameLower = (p) => (p.name || '').toLowerCase()
     
-    // Pick primary point - prioritize temperature points with history
-    // Most likely to have interesting sparkline data
+    // Pick primary point - prioritize user-facing points that show equipment state
+    // Priority order: Space Temp > Supply Air > Control Temp > Cool/Heat Call > any temp > any with history
     primaryPoint.value = 
-      validPoints.find(p => p.hasHistory && p.name.toLowerCase().includes('temp')) ||
-      validPoints.find(p => p.hasHistory && p.name.toLowerCase().includes('space')) ||
-      validPoints.find(p => p.hasHistory && p.name.toLowerCase().includes('supply')) ||
+      // First priority: Space temperature (most relevant for occupants)
+      validPoints.find(p => nameLower(p).includes('space') && nameLower(p).includes('temp')) ||
+      validPoints.find(p => nameLower(p) === 'spacetemp' || nameLower(p) === 'space temp') ||
+      // Second: Supply air temp (shows what unit is doing)
+      validPoints.find(p => nameLower(p).includes('supply') && nameLower(p).includes('temp')) ||
+      validPoints.find(p => nameLower(p).includes('supplyair')) ||
+      // Third: Control temp
+      validPoints.find(p => nameLower(p).includes('control') && nameLower(p).includes('temp')) ||
+      // Fourth: Any temp with history
+      validPoints.find(p => p.hasHistory && nameLower(p).includes('temp')) ||
+      // Fifth: Cool/Heat call status
+      validPoints.find(p => nameLower(p).includes('cool') && nameLower(p).includes('call')) ||
+      validPoints.find(p => nameLower(p).includes('heat') && nameLower(p).includes('call')) ||
+      // Sixth: Any point with history
       validPoints.find(p => p.hasHistory && p.trendable) ||
       validPoints.find(p => p.hasHistory) ||
+      // Fallback: Temperature type or any trendable
       validPoints.find(p => p.type && ['Temperature', 'Pressure', 'Flow'].includes(p.type)) ||
       validPoints.find(p => p.trendable) ||
       validPoints[0]
@@ -678,8 +694,18 @@ watch(() => props.equipment.id, () => {
   padding: var(--spacing-xs) var(--spacing-sm);
   background: rgba(15, 23, 42, 0.4);
   border-radius: 8px;
-  height: 60px;
+  min-height: 60px;
   overflow: hidden;
+}
+
+.sparkline-label {
+  font-size: 10px;
+  color: rgba(148, 163, 184, 0.8);
+  text-align: center;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Point-Device Value Display */

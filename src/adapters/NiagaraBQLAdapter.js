@@ -1380,11 +1380,19 @@ class NiagaraBQLAdapter {
       return [];
     }
     
-    // Check if we have cached history data (from preload)
+    // Check if we have cached history data (from memory or localStorage)
     const cachedHistory = this.historyCache.get(historyId)
     if (cachedHistory && (Date.now() - cachedHistory.timestamp) < 5 * 60 * 1000) {
-      console.log(`📈 Using cached history (${cachedHistory.data.length} points)`)
+      console.log(`📈 Using memory-cached history (${cachedHistory.data.length} points)`)
       return cachedHistory.data
+    }
+    
+    // Check localStorage cache (survives page refresh)
+    const storageCached = this._loadHistoryDataCache(historyId)
+    if (storageCached) {
+      console.log(`📈 Using localStorage-cached history (${storageCached.length} points) - INSTANT!`)
+      this.historyCache.set(historyId, { data: storageCached, timestamp: Date.now() })
+      return storageCached
     }
     
     console.log(`   historyId: ${historyId}`);
@@ -1396,10 +1404,50 @@ class NiagaraBQLAdapter {
 
     const data = await this._queryHistory(historyId, startDate, endDate);
     
-    // Cache the result for 5 minutes
+    // Cache the result in memory (5 min) and localStorage (30 min)
     this.historyCache.set(historyId, { data, timestamp: Date.now() })
+    this._saveHistoryDataCache(historyId, data)
     
     return data;
+  }
+
+  /**
+   * Load history data from localStorage cache
+   * @private
+   */
+  _loadHistoryDataCache(historyId) {
+    try {
+      const cacheKey = `niagara-history-data-${historyId.replace(/[^a-zA-Z0-9]/g, '_')}`
+      const cached = window.localStorage.getItem(cacheKey)
+      if (cached) {
+        const data = JSON.parse(cached)
+        // Cache valid for 30 minutes
+        if (data.timestamp && (Date.now() - data.timestamp) < 30 * 60 * 1000) {
+          return data.points
+        }
+      }
+    } catch (e) {}
+    return null
+  }
+
+  /**
+   * Save history data to localStorage cache
+   * @private
+   */
+  _saveHistoryDataCache(historyId, points) {
+    try {
+      // Only cache if we have data and it's reasonable size (< 500 points)
+      if (!points || points.length === 0 || points.length > 500) return
+      
+      const cacheKey = `niagara-history-data-${historyId.replace(/[^a-zA-Z0-9]/g, '_')}`
+      const data = {
+        timestamp: Date.now(),
+        points: points
+      }
+      window.localStorage.setItem(cacheKey, JSON.stringify(data))
+    } catch (e) {
+      // localStorage might be full - silently fail
+    }
   }
 
   /**
