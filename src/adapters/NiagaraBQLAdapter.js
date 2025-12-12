@@ -847,22 +847,26 @@ class NiagaraBQLAdapter {
    */
   _filterAndPrioritizePoints(points) {
     // Define low-priority prefixes (BACnet network variables, internal points, config, etc.)
+    // Exact names to exclude (case-insensitive)
+    const lowPriorityExact = [
+      'or', 'or1', 'not', 'not1', 'tuncos', 'knownissues', 
+      'nextstatein1', 'occstatein', 'genb24schdl', 'notequal65536'
+    ];
+    
     const lowPriorityPrefixes = [
       'nvo', 'nvi', 'no_', 'ni_',           // BACnet network variables
       'inhibit', 'clear', 'enable',          // Control flags
       'genb', '_mstp', 'mstp',               // Internal/MSTP
-      'inspace', 'insupply',                 // Input references (but not 'in' alone - too broad)
+      'inspace', 'insupply',                 // Input references
       'occstatein', 'tuncos', 'equal',       // Schedule/tuning
       'cfg_', 'cfg',                         // Config points
-      'brand', 'model', 'serial',            // Equipment metadata
-      'password', 'network', 'address',      // Network config
-      'slot', 'driver'                       // System
+      'irm_', 'tc_500',                      // Internal programs
+      'nextstate', 'occstate'                // Schedule state
     ];
     
     // Patterns to match anywhere in name (not just start)
     const lowPriorityContains = [
-      'inhibit', 'override', 'manual', 'test', 'debug',
-      'config', 'setup', 'calibration'
+      'inhibit', '_mstp', 'tuncos', 'boolschedadptr'
     ];
     
     const lowPriorityTypes = ['Unknown', 'Command', 'Config'];
@@ -875,6 +879,9 @@ class NiagaraBQLAdapter {
     points.forEach(point => {
       const nameLower = (point.name || '').toLowerCase();
       
+      // Check for exact match exclusions (e.g., "Or", "Not", "TUNCOS")
+      const isExactMatch = lowPriorityExact.includes(nameLower);
+      
       // Check for low-priority prefixes
       const hasLowPrefix = lowPriorityPrefixes.some(prefix => nameLower.startsWith(prefix.toLowerCase()));
       
@@ -882,7 +889,7 @@ class NiagaraBQLAdapter {
       const hasLowPattern = lowPriorityContains.some(pattern => nameLower.includes(pattern.toLowerCase()));
       
       const isLowType = lowPriorityTypes.includes(point.type);
-      const isLowPriority = hasLowPrefix || hasLowPattern;
+      const isLowPriority = isExactMatch || hasLowPrefix || hasLowPattern;
       
       if (isLowPriority || isLowType) {
         point.priority = 'low';
@@ -933,9 +940,23 @@ class NiagaraBQLAdapter {
     }
     console.log(`  📝 Clean path: ${cleanPath}`);
     
-    // Query all points - filtering done in JavaScript later
-    const bql = `station:|slot:${cleanPath}|bql:select slotPath, displayName, name, out from control:ControlPoint`;
-    console.log(`  📝 BQL: ${bql}`);
+    // Filter out junk points at BQL level using displayName != pattern
+    // This filters out internal/diagnostic points that clutter the UI
+    const filterConditions = [
+      "displayName != 'Or'",
+      "displayName != 'Or1'",
+      "displayName != 'Not'", 
+      "displayName != 'Not1'",
+      "displayName != 'NotEqual65536'",
+      "displayName != 'KnownIssues'",
+      "displayName != 'TUNCOS'",
+      "displayName != 'NextStateIn1'",
+      "displayName != 'OccStateIn'",
+      "displayName != 'gEnb24Schdl'"
+    ].join(' and ')
+    
+    const bql = `station:|slot:${cleanPath}|bql:select slotPath, displayName, name, out from control:ControlPoint where ${filterConditions}`;
+    console.log(`  📝 BQL: ${bql.substring(0, 120)}...`);
     
     try {
       const table = await baja.Ord.make(bql).get();

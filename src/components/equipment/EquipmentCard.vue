@@ -389,13 +389,16 @@ onMounted(async () => {
   
   // Load sparkline automatically for equipment with points (staggered to avoid hammering)
   if (props.equipment.pointCount > 0 && !props.equipment.isPointDevice) {
+    console.log(`📊 Scheduling sparkline load for ${props.equipment.name} (${props.equipment.pointCount} points)`)
     // Stagger loading based on equipment index to spread load
-    const staggerDelay = Math.random() * 3000 // 0-3 seconds random delay
+    const staggerDelay = Math.random() * 2000 // 0-2 seconds random delay
     setTimeout(async () => {
       try {
+        console.log(`📊 Starting sparkline load for ${props.equipment.name}...`)
         await loadMiniChartData()
+        console.log(`📊 Sparkline load complete for ${props.equipment.name}: ${miniChartData.value.length} points`)
       } catch (e) {
-        // Silently ignore - sparkline is nice to have, not critical
+        console.log(`📊 Sparkline failed for ${props.equipment.name}:`, e.message)
       }
     }, staggerDelay)
   }
@@ -437,7 +440,9 @@ const loadMiniChartForPoint = async (point) => {
     
     if (historyData && historyData.length > 0) {
       console.log(`📊 ✓ Sparkline loaded: ${historyData.length} data points for ${point.name}`)
+      console.log(`📊 Sample data:`, historyData[0])
       miniChartData.value = historyData
+      console.log(`📊 miniChartData now has ${miniChartData.value.length} items, selectedMiniPoint: ${selectedMiniPoint.value?.name}`)
     } else {
       console.log(`📊 ⚠️ No history data for ${point.name}`)
       miniChartData.value = []
