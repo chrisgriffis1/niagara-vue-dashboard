@@ -56,8 +56,8 @@
       </div>
       
       <!-- Export Button (only in Niagara) -->
-      <button v-if="isNiagaraEnv" @click="exportData" class="export-btn" title="Export data for local testing">
-        📦 Export
+      <button v-if="isNiagaraEnv" @click="exportData" class="export-btn" :disabled="exporting" title="Export data for local testing">
+        {{ exporting ? '⏳ Exporting...' : '📦 Export' }}
       </button>
       
       <div class="persistence-controls">
@@ -484,15 +484,22 @@ const switchDataset = async () => {
 }
 
 // Export data for local testing (Niagara only)
+const exporting = ref(false)
 const exportData = async () => {
   if (!adapter || !isNiagaraEnv.value) return
+  if (exporting.value) return // Prevent double-click
   
+  exporting.value = true
   try {
     console.log('📦 Starting export...')
+    alert('Export starting... This may take a minute for large datasets. Check console for progress.')
     await adapter.exportForLocalTesting()
+    alert('Export complete! Check your downloads folder, or access via window.lastExport in console.')
   } catch (error) {
     console.error('Export failed:', error)
     alert(`Export failed: ${error.message}`)
+  } finally {
+    exporting.value = false
   }
 }
 

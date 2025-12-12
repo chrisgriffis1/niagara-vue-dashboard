@@ -280,21 +280,53 @@ class NiagaraBQLAdapter {
     exportData.histories = historyDataKeys;
     
     // Create and download JSON file
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const jsonStr = JSON.stringify(exportData, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `niagara-export-${Date.now()}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    const filename = `niagara-export-${Date.now()}.json`;
+    
+    // Try download first
+    try {
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      
+      // Give it a moment then clean up
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 100);
+      
+      console.log('✅ Export complete! Check your downloads folder.');
+    } catch (downloadErr) {
+      console.warn('⚠️ Download failed, opening in new tab...');
+      // Fallback: Open in new window so user can copy/paste
+      const newWindow = window.open('', '_blank');
+      if (newWindow) {
+        newWindow.document.write('<pre style="white-space:pre-wrap;word-wrap:break-word;">' + jsonStr.substring(0, 500000) + '</pre>');
+        newWindow.document.title = filename;
+      } else {
+        // Last resort: copy to clipboard
+        navigator.clipboard?.writeText(jsonStr).then(() => {
+          alert('Export copied to clipboard! Paste into a .json file.');
+        }).catch(() => {
+          console.log('📋 Export data (copy from console):', exportData);
+        });
+      }
+    }
     
     console.log('✅ Export complete!');
     console.log(`   📦 Equipment: ${exportData.equipment.length}`);
     console.log(`   🔔 Alarms: ${exportData.alarms.length}`);
     console.log(`   📊 History IDs: ${historyEntries.length}`);
     console.log(`   📈 History Data: ${historyDataKeys.length} cached`);
+    
+    // Also store in window for easy console access
+    window.lastExport = exportData;
+    console.log('💡 Access export data via: window.lastExport');
     console.log('💡 Place the downloaded JSON in public/mock-data/ and add to MockDataAdapter.availableDatasets');
     
     return exportData;
