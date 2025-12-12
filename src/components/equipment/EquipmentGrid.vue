@@ -337,15 +337,17 @@ const filteredEquipment = computed(() => {
   if (searchQuery.value.trim()) {
     const query = searchQuery.value.toLowerCase().replace(/\s+/g, '') // Remove spaces
     filtered = filtered.filter(e => {
-      // Remove spaces from equipment fields for comparison
-      const name = e.name.toLowerCase().replace(/\s+/g, '')
-      const type = e.type.toLowerCase().replace(/\s+/g, '')
-      const location = e.location.toLowerCase().replace(/\s+/g, '')
-      const id = e.id.toLowerCase().replace(/\s+/g, '')
+      // Remove spaces from equipment fields for comparison (with null safety)
+      const name = (e.name || '').toLowerCase().replace(/\s+/g, '')
+      const type = (e.type || '').toLowerCase().replace(/\s+/g, '')
+      const location = (e.location || '').toLowerCase().replace(/\s+/g, '')
+      const zone = (e.zone || '').toLowerCase().replace(/\s+/g, '')
+      const id = (e.id || '').toLowerCase().replace(/\s+/g, '')
       
       return name.includes(query) ||
              type.includes(query) ||
              location.includes(query) ||
+             zone.includes(query) ||
              id.includes(query)
     })
   }
