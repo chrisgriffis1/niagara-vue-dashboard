@@ -43,13 +43,13 @@
 
     <!-- Point-Device Value Display (for devices that ARE points) -->
     <div v-if="equipment.isPointDevice" class="point-device-value">
-      <div class="device-value-label">Current Value</div>
+      <div class="device-value-label">Current Value <span v-if="liveStatus" class="live-indicator">● LIVE</span></div>
       <div class="device-value-display">
-        <span class="value">{{ equipment.currentValue ?? 'N/A' }}</span>
+        <span class="value">{{ liveValue ?? equipment.currentValue ?? 'N/A' }}</span>
         <span v-if="equipment.unit" class="unit">{{ equipment.unit }}</span>
       </div>
       <div class="device-status-note">
-        Point-device • Status: {{ equipment.status || 'ok' }}
+        Point-device • Status: {{ liveStatus || equipment.status || 'ok' }}
       </div>
     </div>
 
@@ -111,14 +111,15 @@
           <div class="point-info">
             <div class="point-name-row">
               <span class="point-name">{{ point.name }}</span>
+              <span v-if="pointLiveValues.has(point.id)" class="live-dot" title="Live data">●</span>
               <span v-if="getPointAlarm(point)" class="alarm-badge" :class="`alarm-${getPointAlarm(point).priority}`">
                 {{ getAlarmIcon(getPointAlarm(point).priority) }}
               </span>
             </div>
             <span class="point-type">{{ point.type }}</span>
           </div>
-          <div class="point-value">
-            {{ point.displayValue }}
+          <div class="point-value" :class="{ 'live': pointLiveValues.has(point.id) }">
+            {{ getPointDisplayValue(point) }}
           </div>
         </div>
         <div v-if="!loading && points.length === 0" class="no-points">
@@ -149,10 +150,14 @@
  * Max 300 lines per component rule
  */
 
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useDeviceStore } from '../../stores/deviceStore'
 import { useAlarmStore } from '../../stores/alarmStore'
 import MiniChart from '../charts/MiniChart.vue'
+
+// Live subscription cleanup functions
+let pointDeviceUnsubscribe = null
+let equipmentUnsubscribe = null
 
 const props = defineProps({
   equipment: {
@@ -180,6 +185,9 @@ const loadingMiniChart = ref(false)
 const primaryPoint = ref(null)
 const selectedMiniPoint = ref(null)
 const pointsLoaded = ref(false)
+const liveValue = ref(null) // Live value for point-device cards
+const liveStatus = ref(null) // Live status for point-device cards
+const pointLiveValues = ref(new Map()) // Live values for expanded points
 
 const pointCountLabel = computed(() => {
   if (allPointsCount.value > 0) return allPointsCount.value
@@ -264,6 +272,28 @@ const togglePoints = async () => {
     }
     // Load mini-chart data on-demand when expanded
     await loadMiniChartData()
+    
+    // Subscribe to live updates for this equipment's points
+    const currentAdapter = adapter.value
+    if (currentAdapter && currentAdapter.subscribeToEquipment && points.value.length > 0) {
+      equipmentUnsubscribe = currentAdapter.subscribeToEquipment(props.equipment.id, (update) => {
+        // Update point's live value
+        pointLiveValues.value.set(update.pointId, {
+          value: update.value,
+          status: update.status,
+          timestamp: update.timestamp
+        })
+        // Force reactivity update
+        pointLiveValues.value = new Map(pointLiveValues.value)
+      })
+    }
+  } else {
+    // Unsubscribe when collapsing
+    if (equipmentUnsubscribe) {
+      equipmentUnsubscribe()
+      equipmentUnsubscribe = null
+      pointLiveValues.value.clear()
+    }
   }
 }
 
@@ -342,9 +372,34 @@ const loadMiniChartData = async () => {
   }
 }
 
-// Auto-load sparkline when component mounts
-// REMOVED: Auto-loading sparklines on mount caused 145+ sequential loads
-// Sparklines now load on-demand when card is expanded (see togglePoints)
+// Setup live subscriptions on mount
+onMounted(async () => {
+  // For point-device cards, subscribe to live updates immediately
+  if (props.equipment.isPointDevice && props.equipment.slotPath) {
+    const currentAdapter = adapter.value
+    if (currentAdapter && currentAdapter.subscribeToPointDevice) {
+      // Initialize live value with current value
+      liveValue.value = props.equipment.currentValue
+      
+      pointDeviceUnsubscribe = currentAdapter.subscribeToPointDevice(props.equipment, (update) => {
+        liveValue.value = update.value
+        liveStatus.value = update.status
+      })
+    }
+  }
+})
+
+// Cleanup subscriptions on unmount
+onUnmounted(() => {
+  if (pointDeviceUnsubscribe) {
+    pointDeviceUnsubscribe()
+    pointDeviceUnsubscribe = null
+  }
+  if (equipmentUnsubscribe) {
+    equipmentUnsubscribe()
+    equipmentUnsubscribe = null
+  }
+})
 
 // Load mini-chart for specific point
 const loadMiniChartForPoint = async (point) => {
@@ -397,6 +452,17 @@ const getMiniChartColor = () => {
     }
   }
   return '#3b82f6' // Default blue
+}
+
+// Get point display value - prefer live value over static
+const getPointDisplayValue = (point) => {
+  const live = pointLiveValues.value.get(point.id)
+  if (live) {
+    // Format live value with unit
+    const unit = point.unit || ''
+    return unit ? `${live.value} ${unit}` : `${live.value}`
+  }
+  return point.displayValue
 }
 
 // Handle point click
@@ -618,6 +684,30 @@ watch(() => props.equipment.id, () => {
   margin-top: var(--spacing-sm);
   font-size: var(--font-size-xs);
   color: var(--color-text-tertiary);
+}
+
+/* Live Indicator */
+.live-indicator {
+  color: #22c55e;
+  font-size: 10px;
+  margin-left: 6px;
+  animation: pulse-live 1.5s ease-in-out infinite;
+}
+
+.live-dot {
+  color: #22c55e;
+  font-size: 8px;
+  margin-left: 4px;
+  animation: pulse-live 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-live {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.point-value.live {
+  color: #22c55e;
 }
 
 /* Mini Chart Section - Tesla style sparkline */

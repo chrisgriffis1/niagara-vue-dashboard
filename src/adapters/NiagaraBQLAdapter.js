@@ -2264,6 +2264,146 @@ class NiagaraBQLAdapter {
       }
     }
   }
+  
+  /**
+   * Subscribe to live updates for a single point
+   * @param {string} slotPath - The point's slot path
+   * @param {function} callback - Called with { value, status, timestamp } on each update
+   * @returns {function} Unsubscribe function
+   */
+  subscribeToPoint(slotPath, callback) {
+    const baja = this._getBaja()
+    if (!baja || !baja.Subscriber) {
+      console.warn('⚠️ Live subscriptions not available')
+      return () => {}
+    }
+    
+    const subscriber = new baja.Subscriber()
+    let subscribed = false
+    
+    // Parse value from Niagara format "value {status}"
+    const parseValue = (str) => {
+      const match = str.match(/^(.+?)\s*\{([^}]+)\}/)
+      if (match) {
+        let val = match[1].trim()
+        const numVal = parseFloat(val)
+        if (!isNaN(numVal)) {
+          val = Math.round(numVal * 10) / 10 // 1 decimal place
+        }
+        return { value: val, status: match[2].toLowerCase() }
+      }
+      let val = str.trim()
+      const numVal = parseFloat(val)
+      if (!isNaN(numVal)) {
+        val = Math.round(numVal * 10) / 10
+      }
+      return { value: val, status: 'ok' }
+    }
+    
+    // Update handler
+    const handleUpdate = (point) => {
+      try {
+        const out = point.get('out')
+        if (out) {
+          const parsed = parseValue(out.toString())
+          callback({
+            value: parsed.value,
+            status: parsed.status,
+            timestamp: new Date().toISOString()
+          })
+        }
+      } catch (e) {
+        console.warn('Error in subscription update:', e)
+      }
+    }
+    
+    // Attach changed handler - filter for 'out' property changes
+    subscriber.attach('changed', function(prop) {
+      if (prop && prop.getName && prop.getName() === 'out') {
+        handleUpdate(this) // 'this' is the component
+      }
+    })
+    
+    // Construct point ORD
+    const cleanPath = slotPath.replace(/^slot:/, '').replace(/^\//, '')
+    const pointOrd = `station:|slot:/${cleanPath}`
+    
+    // Get point WITH subscriber
+    baja.Ord.make(pointOrd).get({ subscriber: subscriber })
+      .then((point) => {
+        subscribed = true
+        handleUpdate(point) // Initial value
+        console.log(`📡 Live subscription started: ${cleanPath}`)
+      })
+      .catch((err) => {
+        console.warn(`⚠️ Failed to subscribe to ${cleanPath}:`, err)
+      })
+    
+    // Return unsubscribe function
+    return () => {
+      if (subscribed) {
+        try {
+          subscriber.unsubscribeAll()
+        } catch (e) {}
+        try {
+          subscriber.detach()
+        } catch (e) {}
+        console.log(`📡 Unsubscribed from: ${cleanPath}`)
+      }
+    }
+  }
+  
+  /**
+   * Subscribe to live updates for all points in an equipment
+   * @param {string} equipmentId - Equipment ID
+   * @param {function} callback - Called with { pointId, value, status } on each update
+   * @returns {function} Unsubscribe function
+   */
+  subscribeToEquipment(equipmentId, callback) {
+    const points = this.equipmentPointsMap.get(equipmentId) || []
+    const unsubscribers = []
+    
+    for (const point of points) {
+      if (point.slotPath) {
+        const unsub = this.subscribeToPoint(point.slotPath, (update) => {
+          callback({
+            pointId: point.id,
+            pointName: point.name,
+            ...update
+          })
+        })
+        unsubscribers.push(unsub)
+      }
+    }
+    
+    console.log(`📡 Subscribed to ${unsubscribers.length} points for ${equipmentId}`)
+    
+    // Store for cleanup
+    this.subscribedPoints.set(equipmentId, unsubscribers)
+    
+    // Return unsubscribe function
+    return () => {
+      for (const unsub of unsubscribers) {
+        unsub()
+      }
+      this.subscribedPoints.delete(equipmentId)
+      console.log(`📡 Unsubscribed from equipment: ${equipmentId}`)
+    }
+  }
+  
+  /**
+   * Subscribe to a point-device (single-point equipment) for live updates
+   * @param {object} equipment - Equipment object with slotPath
+   * @param {function} callback - Called with { value, status } on each update
+   * @returns {function} Unsubscribe function
+   */
+  subscribeToPointDevice(equipment, callback) {
+    if (!equipment.isPointDevice || !equipment.slotPath) {
+      return () => {}
+    }
+    
+    return this.subscribeToPoint(equipment.slotPath, callback)
+  }
 }
 
 export default NiagaraBQLAdapter;
