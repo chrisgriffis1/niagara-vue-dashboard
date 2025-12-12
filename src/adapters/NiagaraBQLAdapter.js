@@ -454,18 +454,37 @@ class NiagaraBQLAdapter {
               }
               
               // Get current value/status from 'out'
+              // Format: "value {status}" e.g., "72.5 {ok}" or "true {ok}" or "Off {ok}"
               let currentValue = null;
               let status = 'ok';
+              let unit = '';
+              
               if (outValue) {
                 const valMatch = outValue.match(/^(.+?)\s*\{([^}]+)\}/);
                 if (valMatch) {
                   currentValue = valMatch[1].trim();
-                  const statusStr = valMatch[2].toLowerCase();
-                  if (statusStr.includes('fault') || statusStr.includes('alarm')) {
+                  const statusStr = valMatch[2].toLowerCase().trim();
+                  
+                  // Only set error if status is NOT ok
+                  if (statusStr === 'ok' || statusStr === 'unacked') {
+                    status = 'ok';
+                  } else if (statusStr.includes('fault') || statusStr.includes('alarm') || statusStr.includes('down') || statusStr.includes('fail')) {
                     status = 'error';
-                  } else if (statusStr.includes('warn')) {
+                  } else if (statusStr.includes('warn') || statusStr.includes('stale')) {
                     status = 'warning';
+                  } else if (statusStr !== 'ok') {
+                    // Unknown status - default to ok unless clearly bad
+                    status = 'ok';
                   }
+                  
+                  // Try to extract unit from value
+                  const unitMatch = currentValue.match(/(°F|°C|%|psi|cfm|rpm|kw|v|a|gpm)$/i);
+                  if (unitMatch) {
+                    unit = unitMatch[1];
+                  }
+                } else {
+                  // No status in braces, just use the value
+                  currentValue = outValue.trim();
                 }
               }
               
@@ -479,9 +498,12 @@ class NiagaraBQLAdapter {
                 slotPath: cleanPath,
                 isPointDevice: true,
                 currentValue: currentValue,
+                unit: unit,
                 status: status,
                 pointCount: 0 // Point-devices don't have sub-points, they ARE the point
               });
+              
+              console.log(`📦 Point-device: ${displayName} = ${currentValue} {${status}}`)
               
               addedCount++;
             } catch (e) {}
@@ -1691,15 +1713,15 @@ class NiagaraBQLAdapter {
     this.alarmCallbacks = []
     
     try {
-      // Try multiple alarm query approaches
-      // Niagara alarms can be queried via different paths
+      // Try multiple alarm query approaches based on user's working queries
+      // Key insight: alarm:|bql: queries work, need to check alarmData.toState
       const alarmQueries = [
-        // Try direct AlarmService query
-        "alarm:|bql:select * from alarm:AlarmRecord where sourceState != 'normal'",
-        // Try from station root
-        "station:|slot:/Services/AlarmService|bql:select slotPath, sourceState, ackState, alarmClass, normalTime, alarmTime, ackTime, sourceName, alarmData from alarm:AlarmRecord",
-        // Alternative: query open alarms
-        "station:|slot:/Services/AlarmService/OpenAlarms|bql:select slotPath, sourceState, ackState, alarmClass, sourceName, alarmData from alarm:AlarmRecord"
+        // User's working pattern - query all alarm classes
+        "alarm:|bql:select timestamp, alarmClass, alarmData.sourceName, alarmData.toState, alarmData.presentValue, sourceState, ackState where alarmData.toState = 'offnormal' or alarmData.toState = 'highLimit' order by timestamp DESC",
+        // Simpler query for any active alarms
+        "alarm:|bql:select timestamp, alarmClass, sourceName, sourceState, ackState, alarmData where sourceState != 'normal' order by timestamp DESC",
+        // Fallback: all alarms
+        "alarm:|bql:select timestamp, alarmClass, sourceName, sourceState, ackState order by timestamp DESC"
       ]
       
       let table = null
@@ -1743,16 +1765,42 @@ class NiagaraBQLAdapter {
           each: function(record) {
             recordCount++
             try {
-              // Try multiple field name variations
+              // Try multiple field name variations based on user's alarm queries
               const uuid = record.get('uuid')?.toString() || record.get('slotPath')?.toString() || `alarm_${recordCount}`
               const sourceState = record.get('sourceState')?.toString() || ''
               const ackState = record.get('ackState')?.toString() || ''
               const alarmClass = record.get('alarmClass')?.toString() || ''
-              const timestamp = record.get('timestamp')?.toString() || record.get('alarmTime')?.toString() || ''
-              const sourceName = record.get('sourceName')?.toString() || record.get('source')?.toString() || ''
-              const alarmData = record.get('alarmData')?.toString() || record.get('msgText')?.toString() || ''
+              const timestamp = record.get('timestamp')?.toString() || ''
               
-              console.log(`🔔 Alarm record: state=${sourceState}, source=${sourceName}`)
+              // sourceName can be in alarmData.sourceName or directly
+              let sourceName = record.get('sourceName')?.toString() || ''
+              let toState = ''
+              let presentValue = ''
+              
+              // Try to get alarmData fields
+              try {
+                const alarmDataObj = record.get('alarmData')
+                if (alarmDataObj) {
+                  if (!sourceName) {
+                    sourceName = alarmDataObj.get?.('sourceName')?.toString() || alarmDataObj.sourceName || ''
+                  }
+                  toState = alarmDataObj.get?.('toState')?.toString() || alarmDataObj.toState || ''
+                  presentValue = alarmDataObj.get?.('presentValue')?.toString() || alarmDataObj.presentValue || ''
+                }
+              } catch (e) {
+                // alarmData might be a string
+                const alarmDataStr = record.get('alarmData')?.toString() || ''
+                if (alarmDataStr && !sourceName) {
+                  sourceName = alarmDataStr
+                }
+              }
+              
+              // Skip if normal state
+              if (sourceState === 'normal' && toState !== 'offnormal' && toState !== 'highLimit') {
+                return
+              }
+              
+              console.log(`🔔 Alarm: class=${alarmClass}, state=${sourceState || toState}, source=${sourceName}`)
               
               // Parse priority from alarmClass
               let priority = 'normal'

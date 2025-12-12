@@ -42,11 +42,14 @@
     </div>
 
     <!-- Point-Device Value Display (for devices that ARE points) -->
-    <div v-if="equipment.isPointDevice && equipment.currentValue" class="point-device-value">
+    <div v-if="equipment.isPointDevice" class="point-device-value">
       <div class="device-value-label">Current Value</div>
       <div class="device-value-display">
-        <span class="value">{{ equipment.currentValue }}</span>
+        <span class="value">{{ equipment.currentValue ?? 'N/A' }}</span>
         <span v-if="equipment.unit" class="unit">{{ equipment.unit }}</span>
+      </div>
+      <div class="device-status-note">
+        Point-device • Status: {{ equipment.status || 'ok' }}
       </div>
     </div>
 
@@ -617,6 +620,12 @@ watch(() => props.equipment.id, () => {
 .device-value-display .unit {
   font-size: var(--font-size-md);
   color: var(--color-text-secondary);
+}
+
+.device-status-note {
+  margin-top: var(--spacing-sm);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
 }
 
 /* Mini Chart Section - Tesla style sparkline */
