@@ -31,10 +31,11 @@ class NiagaraBQLAdapter {
         timestamp: Date.now(),
         equipment: this.equipment,
         alarms: this.alarms || [],
+        zones: this.zones || [],
         // Don't cache points - they're loaded on demand
       };
       localStorage.setItem(this.cacheKey, JSON.stringify(cacheData));
-      console.log('💾 Saved equipment and alarms to cache');
+      console.log('💾 Saved equipment, alarms, and zones to cache');
     } catch (e) {
       console.warn('⚠️ Failed to save cache:', e);
     }
@@ -139,7 +140,8 @@ class NiagaraBQLAdapter {
         console.log('⚡ Using cached data - INSTANT LOAD!');
         this.equipment = cached.equipment;
         this.alarms = cached.alarms || [];
-        console.log(`✓ Loaded ${this.equipment.length} equipment, ${this.alarms.length} alarms from cache`);
+        this.zones = cached.zones || [];
+        console.log(`✓ Loaded ${this.equipment.length} equipment, ${this.alarms.length} alarms, ${this.zones.length} zones from cache`);
         
         // Notify alarm callbacks if we have cached alarms
         if (this.alarms.length > 0 && this.alarmCallbacks && this.alarmCallbacks.length > 0) {
@@ -1546,9 +1548,111 @@ class NiagaraBQLAdapter {
       
       console.log(`📍 Location matching complete: ${matchCount}/${this.equipment.length} equipment have locations`)
       
+      // Now discover Zone/Location enum points for filtering
+      await this._discoverZones()
+      
     } catch (e) {
       console.warn('⚠️ Error discovering locations:', e.message || e)
     }
+  }
+  
+  /**
+   * Discover Location enum points for zone filtering
+   * These are different from tstatLocation - they're enums with values like "Wing 300", "ZoneC_S"
+   * @private
+   */
+  async _discoverZones() {
+    const baja = this._getBaja()
+    if (!baja) return
+    
+    console.log('🗺️ Discovering Zone/Location enum points for filtering...')
+    
+    try {
+      // Query for Location points (not tstatLocation) - these are the zone enums
+      // displayName = 'Location' (exactly) or ends with 'Location' but NOT 'tstatLocation'
+      const zoneBql = "station:|slot:/Drivers/BacnetNetwork|bql:select slotPath as 'slotPath\\',out as 'out\\',displayName as 'displayName\\' from control:ControlPoint where (displayName = 'Location' or displayName like '%Location') and displayName not like '*tstat*' and displayName not like '*hp*'"
+      
+      const table = await baja.Ord.make(zoneBql).get()
+      if (!table || !table.cursor) {
+        console.log('🗺️ No Zone/Location enum points found')
+        return
+      }
+      
+      const zonePoints = []
+      const uniqueZones = new Set()
+      
+      await new Promise(resolve => {
+        table.cursor({
+          limit: 2000,
+          each: function(record) {
+            try {
+              const slotPath = record.get('slotPath')?.toString() || ''
+              const outValue = record.get('out')?.toString() || ''
+              const displayName = record.get('displayName')?.toString() || ''
+              
+              // Skip tstatLocation points
+              if (displayName.toLowerCase().includes('tstat')) return
+              
+              if (slotPath && outValue) {
+                let cleanPath = slotPath.replace(/^slot:/, '').trim()
+                if (!cleanPath.startsWith('/')) cleanPath = '/' + cleanPath
+                
+                // Extract zone value from out
+                // Format: "Wing 300 {ok}" -> "Wing 300"
+                // Format: "ZoneC_S {ok}" -> "ZoneC_S"
+                let zoneValue = outValue.split('{')[0].trim().split('@')[0].trim()
+                
+                // Validate zone - must be real value
+                if (zoneValue && 
+                    zoneValue.length >= 2 && 
+                    zoneValue !== '-' && 
+                    zoneValue !== 'null' &&
+                    !/^\d+$/.test(zoneValue)) {
+                  
+                  zonePoints.push({ path: cleanPath, value: zoneValue })
+                  uniqueZones.add(zoneValue)
+                  console.log(`🗺️ Zone: "${zoneValue}" from ${displayName}`)
+                }
+              }
+            } catch (e) {}
+          },
+          after: function() {
+            resolve()
+          }
+        })
+      })
+      
+      console.log(`🗺️ Found ${uniqueZones.size} unique zones: ${[...uniqueZones].join(', ')}`)
+      
+      // Store zones for filtering
+      this.zones = [...uniqueZones].sort()
+      
+      // Match zones to equipment
+      for (const equip of this.equipment) {
+        const equipId = equip.id || ''
+        const equipIdLower = equipId.toLowerCase()
+        
+        for (const zone of zonePoints) {
+          const zonePathLower = zone.path.toLowerCase()
+          
+          if (zonePathLower.includes('/' + equipIdLower + '/')) {
+            equip.zone = zone.value
+            console.log(`🗺️ Matched zone: ${equip.id} → "${zone.value}"`)
+            break
+          }
+        }
+      }
+      
+    } catch (e) {
+      console.warn('⚠️ Error discovering zones:', e.message || e)
+    }
+  }
+  
+  /**
+   * Get all unique zones for filtering
+   */
+  getZones() {
+    return this.zones || []
   }
   
   /**

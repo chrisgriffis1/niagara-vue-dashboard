@@ -277,45 +277,44 @@ const equipmentTypes = computed(() => {
   return types.sort()
 })
 
-// Get unique locations (filter out system values, device types, and technical names)
+// Get unique zones for filtering - these come from the Location enum points (not tstatLocation)
+// Zones are values like "Wing 300", "ZoneC_S" - typically only 5-6 unique values
 const equipmentLocations = computed(() => {
-  // These are NOT locations - they're device types, system folders, or technical names
-  const excludePatterns = [
-    'unknown', 'tstatlocation', 'tstat_location', 'slot:', 'location',
-    'towerplant', 'towersensor', 'plantcontrol', 'setpoint', 'boiler',
-    'sensor', 'control', 'monitor', 'output', 'input', 'point',
-    'driver', 'bacnet', 'network', 'service', 'alarm', 'history',
-    'schedule', 'trend', 'log', 'config', 'setting', 'parameter',
-    'hot', 'cold', 'supply', 'return', 'discharge', 'mixed',
-    'empl', 'elev', 'equip', 'dss', 'meat', 'dairy', 'cs2'
-  ]
+  // First try to get zones from adapter
+  const adapter = deviceStore.getAdapter()
+  if (adapter && adapter.getZones) {
+    const zones = adapter.getZones()
+    if (zones && zones.length > 0) {
+      console.log('🗺️ Using zones from adapter:', zones)
+      return zones
+    }
+  }
   
-  const locations = [...new Set(equipmentList.value.map(e => e.location))]
-    .filter(loc => {
-      if (!loc) return false
-      if (loc === 'Unknown') return false
-      if (loc.length <= 2) return false // Too short
-      if (loc.startsWith('/')) return false // Path
-      
-      const locLower = loc.toLowerCase()
-      
-      // Check against exclude patterns
-      for (const pattern of excludePatterns) {
-        if (locLower.includes(pattern)) return false
-      }
-      
-      // Must look like a real location name (has letters, maybe numbers)
-      // Real locations: "Wing 300", "Kitchen/Bakery", "Bob's Office", "300 Link Hall"
-      // Not locations: "CS245", "DSS", "Hot", "Meat"
-      
-      // If it's all caps and short, probably not a location
-      if (loc === loc.toUpperCase() && loc.length < 6) return false
-      
-      // If it looks like a device ID (letters followed by numbers), skip
-      if (/^[A-Z]{2,4}\d+$/i.test(loc)) return false
-      
-      return true
-    })
+  // Fallback: get unique zone values from equipment
+  const zones = [...new Set(
+    equipmentList.value
+      .map(e => e.zone) // Use zone property, not location
+      .filter(z => z && z !== 'Unknown' && z.length >= 2)
+  )]
+  
+  if (zones.length > 0) {
+    return zones.sort()
+  }
+  
+  // Last fallback: use location but only if we have very few unique values (real zones)
+  const locations = [...new Set(
+    equipmentList.value
+      .map(e => e.location)
+      .filter(loc => loc && loc !== 'Unknown' && loc.length >= 2)
+  )]
+  
+  // If we have more than 20 unique "locations", they're probably room names, not zones
+  // In that case, don't show any - zones should be discovered properly
+  if (locations.length > 20) {
+    console.log('⚠️ Too many locations - need to discover zones properly')
+    return []
+  }
+  
   return locations.sort()
 })
 
@@ -356,9 +355,11 @@ const filteredEquipment = computed(() => {
     filtered = filtered.filter(e => e.type === selectedType.value)
   }
 
-  // Filter by location
+  // Filter by zone (or location as fallback)
   if (selectedLocation.value) {
-    filtered = filtered.filter(e => e.location === selectedLocation.value)
+    filtered = filtered.filter(e => 
+      e.zone === selectedLocation.value || e.location === selectedLocation.value
+    )
   }
 
   // Filter by alarm
@@ -425,9 +426,9 @@ const filteredEquipment = computed(() => {
 const getTypeCount = (type) => {
   let filtered = equipmentList.value
   
-  // Apply location filter if active
+  // Apply zone/location filter if active
   if (selectedLocation.value) {
-    filtered = filtered.filter(e => e.location === selectedLocation.value)
+    filtered = filtered.filter(e => e.zone === selectedLocation.value || e.location === selectedLocation.value)
   }
   
   // Apply alarm filter if active
@@ -500,11 +501,11 @@ const getAlarmCount = (filter) => {
     filtered = filtered.filter(e => e.type === selectedType.value)
   }
   
-  // Apply location filter if active
+  // Apply zone/location filter if active
   if (selectedLocation.value) {
-    filtered = filtered.filter(e => e.location === selectedLocation.value)
+    filtered = filtered.filter(e => e.zone === selectedLocation.value || e.location === selectedLocation.value)
   }
-  
+
   // Now count by alarm status
   if (filter === 'with-alarms') {
     return filtered.filter(e => equipmentWithAlarms.value.has(e.id)).length
