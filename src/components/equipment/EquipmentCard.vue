@@ -29,6 +29,18 @@
       </div>
     </div>
 
+    <!-- Sparkline (shown even when collapsed) -->
+    <div v-if="miniChartData.length > 0 && selectedMiniPoint" class="sparkline-section">
+      <MiniChart 
+        :data="miniChartData" 
+        :color="getMiniChartColor()"
+        :loading="loadingMiniChart"
+        :point-name="selectedMiniPoint?.name"
+        :unit="selectedMiniPoint?.unit"
+        compact
+      />
+    </div>
+
     <!-- Points List -->
     <div v-if="showPoints" class="points-section">
       <div class="points-header">
@@ -261,17 +273,30 @@ const toggleShowAllPoints = async () => {
   await loadPoints(showAllPoints.value)
 }
 
-// Load mini-chart data (last 1 hour) - only when expanded
+// Load mini-chart data automatically - loads sparkline even when card is collapsed
 const loadMiniChartData = async () => {
   if (!props.equipment.pointCount) return
   
+  // Don't reload if already loaded
+  if (miniChartData.value.length > 0 && selectedMiniPoint.value) {
+    return
+  }
+  
   try {
-    // Use already-loaded points from card expansion
-    if (!points.value || points.value.length === 0) return
+    // Load points if not already loaded
+    if (!points.value || points.value.length === 0) {
+      await loadPoints(false) // Load filtered points
+    }
     
-    // Pick primary point (first one, or first with alarm, or first numeric)
-    primaryPoint.value = points.value.find(p => getPointAlarm(p)) || 
+    if (!points.value || points.value.length === 0) {
+      return // No points available
+    }
+    
+    // Pick primary point (first one with history, or first trendable, or first numeric)
+    primaryPoint.value = points.value.find(p => p.hasHistory && p.trendable) ||
+                          points.value.find(p => getPointAlarm(p)) || 
                           points.value.find(p => ['Temperature', 'Pressure', 'Flow'].includes(p.type)) ||
+                          points.value.find(p => p.trendable) ||
                           points.value[0]
     
     if (!primaryPoint.value) return
@@ -279,12 +304,20 @@ const loadMiniChartData = async () => {
     // Set as selected mini point
     selectedMiniPoint.value = primaryPoint.value
     
-    // Load last hour of data
+    // Load history data for sparkline
     await loadMiniChartForPoint(selectedMiniPoint.value)
   } catch (error) {
     console.error('Failed to load mini-chart data:', error)
   }
 }
+
+// Auto-load sparkline when component mounts
+onMounted(async () => {
+  // Small delay to let card render, then load sparkline
+  setTimeout(() => {
+    loadMiniChartData()
+  }, 200)
+})
 
 // Load mini-chart for specific point
 const loadMiniChartForPoint = async (point) => {
@@ -508,6 +541,16 @@ watch(() => props.equipment.id, () => {
   grid-template-columns: repeat(2, 1fr);
   gap: var(--spacing-md);
   margin-bottom: var(--spacing-md);
+}
+
+/* Sparkline Section (shown when collapsed) */
+.sparkline-section {
+  margin: var(--spacing-sm) 0;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: rgba(15, 23, 42, 0.4);
+  border-radius: 8px;
+  height: 60px;
+  overflow: hidden;
 }
 
 /* Mini Chart Section - Tesla style sparkline */

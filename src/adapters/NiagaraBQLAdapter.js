@@ -256,7 +256,8 @@ class NiagaraBQLAdapter {
                   type: friendlyType,
                   location: null, // Will be filled by _discoverLocations
                   ord: slotPath,
-                  slotPath: slotPath
+                  slotPath: slotPath,
+                  status: 'ok' // Default status, will be updated by _startLiveSubscriptions
                 });
               } catch (e) {}
             },
@@ -1612,12 +1613,29 @@ class NiagaraBQLAdapter {
     this.alarmCallbacks = []
     
     try {
-      // Query current alarms using BQL
-      const alarmBql = "station:|slot:/Services/AlarmService|bql:select * from alarm:AlarmRecord"
+      // Query current alarms using BQL - try multiple approaches
+      // First try AlarmService
+      let alarmBql = "station:|slot:/Services/AlarmService|bql:select * from alarm:AlarmRecord"
       
-      const table = await baja.Ord.make(alarmBql).get()
-      if (!table) {
-        console.log('🔔 No alarm service or alarms found')
+      let table = await baja.Ord.make(alarmBql).get()
+      
+      // If no table, try querying from station root
+      if (!table || !table.cursor) {
+        console.log('🔔 Trying alternative alarm query...')
+        alarmBql = "station:|slot:/|bql:select * from alarm:AlarmRecord"
+        table = await baja.Ord.make(alarmBql).get()
+      }
+      
+      if (!table || !table.cursor) {
+        console.log('🔔 No alarm service or alarms found - alarms may not be configured')
+        // Still notify callbacks with empty array
+        if (this.alarmCallbacks && this.alarmCallbacks.length > 0) {
+          this.alarmCallbacks.forEach(cb => {
+            try {
+              cb([])
+            } catch (e) {}
+          })
+        }
         return
       }
       
@@ -1645,15 +1663,45 @@ class NiagaraBQLAdapter {
                 priority = 'warning'
               }
               
+              // Extract equipment ID from source name/path
+              let equipmentId = null
+              if (sourceName) {
+                // Try to match source to equipment ID
+                for (const equip of self.equipment) {
+                  if (sourceName.includes(equip.id) || sourceName.includes(equip.name)) {
+                    equipmentId = equip.id
+                    break
+                  }
+                }
+              }
+              
+              // Parse timestamp
+              let alarmTimestamp = new Date()
+              if (timestamp) {
+                try {
+                  // Try to parse timestamp - might be Baja timestamp object
+                  if (timestamp.getMillis) {
+                    alarmTimestamp = new Date(timestamp.getMillis())
+                  } else if (typeof timestamp === 'string') {
+                    alarmTimestamp = new Date(timestamp)
+                  }
+                } catch (e) {
+                  alarmTimestamp = new Date()
+                }
+              }
+              
               self.alarms.push({
-                id: uuid,
+                id: uuid || `alarm_${Date.now()}_${Math.random()}`,
                 source: sourceName,
-                message: alarmData || sourceName,
+                message: alarmData || sourceName || 'Alarm',
                 priority: priority,
                 state: sourceState,
                 ackState: ackState,
-                timestamp: timestamp,
-                alarmClass: alarmClass
+                timestamp: alarmTimestamp.toISOString(),
+                alarmClass: alarmClass,
+                active: true, // All queried alarms are active
+                acknowledged: ackState && ackState.toLowerCase().includes('ack'),
+                equipmentId: equipmentId
               })
             } catch (e) {}
           },
@@ -1665,8 +1713,19 @@ class NiagaraBQLAdapter {
       
       console.log(`🔔 Found ${this.alarms.length} alarms`)
       
+      // Update equipment status from alarms
+      this._updateStatusFromAlarms()
+      
       // Notify any existing callbacks
-      this.alarmCallbacks.forEach(cb => cb(this.alarms))
+      if (this.alarmCallbacks && this.alarmCallbacks.length > 0) {
+        this.alarmCallbacks.forEach(cb => {
+          try {
+            cb(this.alarms)
+          } catch (e) {
+            console.warn('Error in alarm callback:', e)
+          }
+        })
+      }
       
     } catch (e) {
       console.warn('⚠️ Error monitoring alarms:', e)
