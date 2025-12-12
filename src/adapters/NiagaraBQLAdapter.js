@@ -1264,19 +1264,20 @@ class NiagaraBQLAdapter {
   }
 
   /**
-   * Discover Location points and match them to equipment
-   * Based on pattern from 04-bql-device-fuzzy-matching.html
+   * Discover tstatLocation points and match them to equipment
+   * tstatLocation.out.value contains the actual room name (e.g., "Kitchen")
    * @private
    */
   async _discoverLocations() {
     const baja = this._getBaja()
     if (!baja) return
     
-    console.log('📍 Discovering location points...')
+    console.log('📍 Discovering tstatLocation points...')
     
     try {
-      // BQL query for Location points - look for displayName containing "ocation" or "Location"
-      const locationBql = "station:|slot:/Drivers/BacnetNetwork|bql:select slotPath as 'slotPath\\',toString as 'toString\\',displayName as 'displayName\\' from control:ControlPoint where displayName like '*ocation*'"
+      // Query for tstatLocation points specifically - these have the room names
+      // Also query for points with "Location" in displayName as fallback
+      const locationBql = "station:|slot:/Drivers/BacnetNetwork|bql:select slotPath as 'slotPath\\',toString as 'toString\\',displayName as 'displayName\\',out as 'out\\' from control:ControlPoint where displayName like '*ocation*'"
       
       const table = await baja.Ord.make(locationBql).get()
       if (!table || !table.cursor) {
@@ -1304,14 +1305,27 @@ class NiagaraBQLAdapter {
                 if (!locationValue || locationValue === toString) {
                   locationValue = toString.split('[')[0].trim()
                 }
-                // Remove any trailing status info
+                // Remove any trailing status info like "@def"
                 locationValue = locationValue.replace(/\s*@.*$/, '').trim()
                 
-                if (locationValue && locationValue !== 'Unknown' && locationValue.length > 0) {
+                // Skip invalid location values
+                // Valid locations: "Kitchen", "Conference Room", "Lobby", etc.
+                // Invalid: numbers only, empty, "Unknown", too short
+                const isValidLocation = locationValue && 
+                  locationValue.length >= 2 &&
+                  locationValue !== 'Unknown' &&
+                  !/^\d+$/.test(locationValue) && // Skip pure numbers like "11"
+                  !/^Zone_/.test(locationValue) // Skip Zone_ folder names - these aren't room names
+                
+                if (isValidLocation) {
+                  // Prioritize tstatLocation points (more likely to have room names)
+                  const isTstatLocation = /tstat.*location/i.test(displayName)
+                  
                   locationPoints.push({
                     path: cleanPath,
                     value: locationValue,
-                    displayName: displayName
+                    displayName: displayName,
+                    priority: isTstatLocation ? 10 : 1
                   })
                 }
               }
@@ -1323,11 +1337,17 @@ class NiagaraBQLAdapter {
         })
       })
       
-      console.log(`📍 Found ${locationPoints.length} location points`)
+      // Sort by priority (tstatLocation points first)
+      locationPoints.sort((a, b) => b.priority - a.priority)
       
-      // Log a few samples for debugging
+      console.log(`📍 Found ${locationPoints.length} valid location points`)
+      
+      // Log samples for debugging
       if (locationPoints.length > 0) {
-        console.log('📍 Sample locations:', locationPoints.slice(0, 3).map(l => `${l.value} (${l.path.split('/').slice(-3).join('/')})`))
+        const samples = locationPoints.slice(0, 5).map(l => 
+          `"${l.value}" from ${l.displayName} (${l.path.split('/').slice(-3).join('/')})`
+        )
+        console.log('📍 Sample locations:', samples)
       }
       
       // Match locations to equipment
@@ -1337,25 +1357,27 @@ class NiagaraBQLAdapter {
         const equipIdLower = equipId.toLowerCase()
         
         let bestMatch = null
+        let bestPriority = 0
         
-        // Strategy: Find location point whose path contains the equipment ID
-        // Equipment: hp69_300_3
-        // Location path: /Drivers/BacnetNetwork/hp69_300_3/points/Inputs/Location
+        // Find highest priority location point for this equipment
         for (const loc of locationPoints) {
           const locPathLower = loc.path.toLowerCase()
           
           // Check if location path contains equipment ID
-          if (locPathLower.includes('/' + equipIdLower + '/') || locPathLower.includes('/' + equipIdLower + '|')) {
-            bestMatch = loc.value
-            break
+          if (locPathLower.includes('/' + equipIdLower + '/') || 
+              locPathLower.includes('/' + equipIdLower + '|')) {
+            if (loc.priority > bestPriority) {
+              bestMatch = loc.value
+              bestPriority = loc.priority
+            }
           }
         }
         
         if (bestMatch) {
           equip.location = bestMatch
           
-          // Update display name: "Kitchen - HP69" format
-          // Keep original name but create displayName with location
+          // Update display name: "[Room Name] - HP49" format
+          // Use location as prefix for equipment name
           if (equip.name && !equip.name.toLowerCase().includes(bestMatch.toLowerCase())) {
             equip.displayName = `${bestMatch} - ${equip.name}`
           }
@@ -1366,10 +1388,11 @@ class NiagaraBQLAdapter {
       
       console.log(`📍 Location matching: ${matchCount}/${this.equipment.length} matched`)
       
-      // Debug: if no matches, show why
-      if (matchCount === 0 && locationPoints.length > 0 && this.equipment.length > 0) {
-        console.log('📍 Debug - First equipment ID:', this.equipment[0].id)
-        console.log('📍 Debug - First location path:', locationPoints[0].path)
+      // Debug: if low match rate, show info
+      if (matchCount < this.equipment.length / 2 && locationPoints.length > 0) {
+        console.log('📍 Debug - Low match rate')
+        console.log('📍 Sample equipment ID:', this.equipment[0]?.id)
+        console.log('📍 Sample location path:', locationPoints[0]?.path)
       }
     } catch (e) {
       console.warn('⚠️ Error discovering locations:', e.message || e)

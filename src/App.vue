@@ -1,5 +1,33 @@
 <template>
   <div class="app-container">
+    <!-- Loading Overlay -->
+    <Transition name="fade">
+      <div v-if="isLoading" class="loading-overlay">
+        <div class="loading-content">
+          <div class="loading-spinner"></div>
+          <h2>{{ loadingTitle }}</h2>
+          <p class="loading-message">{{ loadingMessage }}</p>
+          <div class="loading-progress" v-if="loadingProgress">
+            <div class="progress-bar" :style="{ width: loadingProgress + '%' }"></div>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- Floating Action Button for quick actions -->
+    <div class="fab-container" v-if="showBuildingView">
+      <button class="fab fab-main" @click="toggleFabMenu" :class="{ active: fabMenuOpen }">
+        <span class="fab-icon">⚡</span>
+      </button>
+      <Transition name="fab-menu">
+        <div v-if="fabMenuOpen" class="fab-menu">
+          <button class="fab fab-item" @click="scrollToTop" title="Scroll to top">↑</button>
+          <button class="fab fab-item" @click="openFilters" title="Filters">🔍</button>
+          <button class="fab fab-item" @click="refreshData" title="Refresh">🔄</button>
+        </div>
+      </Transition>
+    </div>
+
     <header class="app-header">
       <div>
         <h1>Niagara Dashboard</h1>
@@ -148,10 +176,59 @@ const showBuildingView = ref(false)
 const persistenceMessage = ref('')
 const savingLayout = ref(false)
 const loadingLayout = ref(false)
+
+// Loading overlay state
+const isLoading = ref(true)
+const loadingTitle = ref('Starting Up')
+const loadingMessage = ref('Connecting to Niagara station...')
+const loadingProgress = ref(0)
+
+// FAB state
+const fabMenuOpen = ref(false)
+
+// FAB methods
+const toggleFabMenu = () => {
+  fabMenuOpen.value = !fabMenuOpen.value
+}
+
+const scrollToTop = () => {
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+  fabMenuOpen.value = false
+}
+
+const openFilters = () => {
+  // Emit event or scroll to filters
+  const filterSection = document.querySelector('.filter-section, .equipment-filters')
+  if (filterSection) {
+    filterSection.scrollIntoView({ behavior: 'smooth' })
+  }
+  fabMenuOpen.value = false
+}
+
+const refreshData = async () => {
+  fabMenuOpen.value = false
+  isLoading.value = true
+  loadingTitle.value = 'Refreshing'
+  loadingMessage.value = 'Reloading equipment data...'
+  loadingProgress.value = 0
+  
+  try {
+    // Clear cache and reload
+    localStorage.removeItem('niagara_dashboard_cache')
+    await deviceStore.loadDevices()
+  } catch (e) {
+    console.error('Refresh failed:', e)
+  } finally {
+    isLoading.value = false
+  }
+}
+
 let adapter = null
 
 onMounted(async () => {
   try {
+    isLoading.value = true
+    loadingProgress.value = 10
     console.log('🚀 App mounting, initializing adapter...')
     console.log('🔍 URL:', typeof window !== 'undefined' ? window.location.href : 'N/A')
     
@@ -208,17 +285,36 @@ onMounted(async () => {
     // Initialize adapter based on environment
     if (isNiagara) {
       // Running in Niagara - use BQL adapter
+      loadingTitle.value = 'Connecting'
+      loadingMessage.value = 'Connecting to Niagara station...'
+      loadingProgress.value = 20
+      
       console.log('🔌 Initializing NiagaraBQLAdapter...')
       adapter = new NiagaraBQLAdapter(window.location.origin)
+      
+      loadingMessage.value = 'Discovering equipment...'
+      loadingProgress.value = 30
+      
       await adapter.initialize()
+      
+      loadingMessage.value = 'Loading locations...'
+      loadingProgress.value = 60
+      
       console.log('✓ Niagara BQL Adapter initialized')
     } else {
       // Development - use mock adapter with real data
+      loadingTitle.value = 'Loading Data'
+      loadingMessage.value = 'Loading mock data...'
+      loadingProgress.value = 30
+      
       console.log('📦 Initializing MockDataAdapter...')
       adapter = new MockDataAdapter()
       await adapter.switchDataset('real')
       console.log('✓ MockDataAdapter initialized with real dataset')
     }
+    
+    loadingMessage.value = 'Preparing dashboard...'
+    loadingProgress.value = 80
     
     // Set adapter in deviceStore so components can use it
     deviceStore.setAdapter(adapter)
@@ -227,14 +323,24 @@ onMounted(async () => {
     stats.value = await adapter.getBuildingStats()
     console.log('✓ Building stats loaded:', stats.value)
     dataLoaded.value = true
+    
+    loadingMessage.value = 'Restoring layout...'
+    loadingProgress.value = 90
     await restoreLayout()
     
+    loadingProgress.value = 100
     console.log('✓ App initialized successfully')
+    
+    // Hide loading overlay with slight delay for smooth transition
+    setTimeout(() => {
+      isLoading.value = false
+    }, 300)
   } catch (error) {
     console.error('❌ Failed to initialize:', error)
     console.error('Error stack:', error.stack)
     // Show error on screen
     dataLoaded.value = false
+    isLoading.value = false
     alert(`Failed to load data: ${error.message}\n\nCheck console for details.`)
   }
 })
@@ -514,5 +620,150 @@ const testAdapter = async () => {
 .persistence-message {
   font-size: var(--font-size-xs);
   color: rgba(255, 255, 255, 0.7);
+}
+
+/* Loading Overlay */
+.loading-overlay {
+  position: fixed;
+  inset: 0;
+  background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #0a0a0a 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.loading-content {
+  text-align: center;
+  max-width: 400px;
+  padding: 2rem;
+}
+
+.loading-spinner {
+  width: 60px;
+  height: 60px;
+  border: 3px solid rgba(59, 130, 246, 0.2);
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 1.5rem;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.loading-content h2 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  color: #fff;
+}
+
+.loading-message {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.9rem;
+  margin-bottom: 1.5rem;
+}
+
+.loading-progress {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+  transition: width 0.3s ease;
+}
+
+/* Fade transition */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.3s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+/* FAB (Floating Action Button) */
+.fab-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  gap: 12px;
+}
+
+.fab {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.fab-main {
+  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+  color: white;
+}
+
+.fab-main:hover {
+  transform: scale(1.05);
+  box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
+}
+
+.fab-main.active {
+  transform: rotate(45deg);
+  background: #ef4444;
+}
+
+.fab-icon {
+  transition: transform 0.2s ease;
+}
+
+.fab-item {
+  width: 48px;
+  height: 48px;
+  background: rgba(30, 30, 46, 0.95);
+  color: white;
+  font-size: 1.2rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.fab-item:hover {
+  background: rgba(59, 130, 246, 0.3);
+  border-color: #3b82f6;
+}
+
+/* FAB menu animation */
+.fab-menu-enter-active,
+.fab-menu-leave-active {
+  transition: all 0.2s ease;
+}
+
+.fab-menu-enter-from,
+.fab-menu-leave-to {
+  opacity: 0;
+  transform: translateY(20px);
+}
+
+.fab-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 </style>
