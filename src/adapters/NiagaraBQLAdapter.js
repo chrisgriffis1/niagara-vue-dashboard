@@ -121,10 +121,15 @@ class NiagaraBQLAdapter {
         this._saveToCache();
       }
       
-      // Discover locations (parallel, non-blocking)
-      this._discoverLocations().catch(err => {
+      // Discover locations BLOCKING - needed for equipment names
+      try {
+        await this._discoverLocations();
+      } catch (err) {
         console.warn('⚠️ Location discovery failed:', err)
-      })
+      }
+      
+      // Update cache with locations
+      this._saveToCache();
       
       // Start live subscriptions for equipment status (non-blocking)
       this._startLiveSubscriptions().catch(err => {
@@ -136,11 +141,18 @@ class NiagaraBQLAdapter {
         console.warn('⚠️ Alarm monitoring failed:', err)
       })
       
+      // Start background loading of points with history (non-blocking)
+      this._backgroundLoadHistoryPoints().catch(err => {
+        console.warn('⚠️ Background history loading failed:', err)
+      })
+      
       this.initialized = true;
       
-      console.log(`✓ Niagara BQL Adapter initialized (fast mode):`);
+      const locCount = this.equipment.filter(e => e.location && e.location !== 'Unknown').length;
+      console.log(`✓ Niagara BQL Adapter initialized:`);
       console.log(`  📦 Equipment: ${this.equipment.length}`);
-      console.log(`  📍 Points: Load on demand`);
+      console.log(`  📍 With locations: ${locCount}`);
+      console.log(`  📊 Points: Load on demand + background`);
       
       return true;
     } catch (error) {
@@ -1263,38 +1275,45 @@ class NiagaraBQLAdapter {
     console.log('📍 Discovering location points...')
     
     try {
-      // BQL query for Location points - pattern from 04-bql-device-fuzzy-matching.html
-      const locationBql = "station:|slot:/Drivers/BacnetNetwork|bql:select slotPath as 'slotPath\\',toString as 'toString\\' from control:ControlPoint where displayName like '*ocation*'"
+      // BQL query for Location points - look for displayName containing "ocation" or "Location"
+      const locationBql = "station:|slot:/Drivers/BacnetNetwork|bql:select slotPath as 'slotPath\\',toString as 'toString\\',displayName as 'displayName\\' from control:ControlPoint where displayName like '*ocation*'"
       
       const table = await baja.Ord.make(locationBql).get()
       if (!table || !table.cursor) {
-        console.log('📍 No location points found')
+        console.log('📍 No location points table returned')
         return
       }
       
       const locationPoints = []
-      const self = this
       
       await new Promise(resolve => {
         table.cursor({
-          limit: 1000,
+          limit: 2000,
           each: function(record) {
             try {
               const slotPath = record.get('slotPath')?.toString() || ''
               const toString = record.get('toString')?.toString() || ''
+              const displayName = record.get('displayName')?.toString() || ''
               
               if (slotPath) {
-                const cleanPath = slotPath.replace(/^slot:/, '').trim()
+                let cleanPath = slotPath.replace(/^slot:/, '').trim()
+                if (!cleanPath.startsWith('/')) cleanPath = '/' + cleanPath
+                
                 // Extract location value from toString (e.g., "Kitchen {ok}" -> "Kitchen")
                 let locationValue = toString.split('{')[0].trim()
-                if (!locationValue) {
+                if (!locationValue || locationValue === toString) {
                   locationValue = toString.split('[')[0].trim()
                 }
+                // Remove any trailing status info
+                locationValue = locationValue.replace(/\s*@.*$/, '').trim()
                 
-                locationPoints.push({
-                  path: cleanPath,
-                  value: locationValue || 'Unknown'
-                })
+                if (locationValue && locationValue !== 'Unknown' && locationValue.length > 0) {
+                  locationPoints.push({
+                    path: cleanPath,
+                    value: locationValue,
+                    displayName: displayName
+                  })
+                }
               }
             } catch (e) {}
           },
@@ -1306,54 +1325,37 @@ class NiagaraBQLAdapter {
       
       console.log(`📍 Found ${locationPoints.length} location points`)
       
-      // Match locations to equipment using multiple strategies
+      // Log a few samples for debugging
+      if (locationPoints.length > 0) {
+        console.log('📍 Sample locations:', locationPoints.slice(0, 3).map(l => `${l.value} (${l.path.split('/').slice(-3).join('/')})`))
+      }
+      
+      // Match locations to equipment
       let matchCount = 0
       for (const equip of this.equipment) {
-        const equipPath = (equip.ord || equip.slotPath || '').toLowerCase()
-        const equipId = (equip.id || '').toLowerCase()
+        const equipId = equip.id || ''
+        const equipIdLower = equipId.toLowerCase()
         
         let bestMatch = null
         
-        // Strategy 1: Equipment ID in location path (most specific)
-        // e.g., /Drivers/BacnetNetwork/HP12/points/.../Location matches HP12
+        // Strategy: Find location point whose path contains the equipment ID
+        // Equipment: hp69_300_3
+        // Location path: /Drivers/BacnetNetwork/hp69_300_3/points/Inputs/Location
         for (const loc of locationPoints) {
           const locPathLower = loc.path.toLowerCase()
           
-          // Check if location path contains equipment ID as a folder
-          if (locPathLower.includes(`/${equipId}/`) && loc.value && loc.value !== 'Unknown') {
+          // Check if location path contains equipment ID
+          if (locPathLower.includes('/' + equipIdLower + '/') || locPathLower.includes('/' + equipIdLower + '|')) {
             bestMatch = loc.value
             break
-          }
-        }
-        
-        // Strategy 2: Find sibling Location point (same parent folder)
-        if (!bestMatch) {
-          const equipPathParts = equipPath.split('/').filter(p => p)
-          if (equipPathParts.length > 0) {
-            // Check if any location point shares the same parent
-            for (const loc of locationPoints) {
-              const locPathParts = loc.path.toLowerCase().split('/').filter(p => p)
-              
-              // Check if location is under same device folder
-              // Equipment: /Drivers/BacnetNetwork/HP12
-              // Location:  /Drivers/BacnetNetwork/HP12/points/Inputs/Location
-              if (locPathParts.length > equipPathParts.length) {
-                const locParent = locPathParts.slice(0, equipPathParts.length).join('/')
-                const equipParent = equipPathParts.join('/')
-                if (locParent === equipParent && loc.value && loc.value !== 'Unknown') {
-                  bestMatch = loc.value
-                  break
-                }
-              }
-            }
           }
         }
         
         if (bestMatch) {
           equip.location = bestMatch
           
-          // Update equipment name to include location (for HPs especially)
-          // "HP21" → "Kitchen - HP21"
+          // Update display name: "Kitchen - HP69" format
+          // Keep original name but create displayName with location
           if (equip.name && !equip.name.toLowerCase().includes(bestMatch.toLowerCase())) {
             equip.displayName = `${bestMatch} - ${equip.name}`
           }
@@ -1362,9 +1364,88 @@ class NiagaraBQLAdapter {
         }
       }
       
-      console.log(`📍 Location discovery complete: ${matchCount}/${this.equipment.length} equipment matched`)
+      console.log(`📍 Location matching: ${matchCount}/${this.equipment.length} matched`)
+      
+      // Debug: if no matches, show why
+      if (matchCount === 0 && locationPoints.length > 0 && this.equipment.length > 0) {
+        console.log('📍 Debug - First equipment ID:', this.equipment[0].id)
+        console.log('📍 Debug - First location path:', locationPoints[0].path)
+      }
     } catch (e) {
-      console.warn('⚠️ Error discovering locations:', e)
+      console.warn('⚠️ Error discovering locations:', e.message || e)
+    }
+  }
+  
+  /**
+   * Background load points for equipment with history (for sparklines)
+   * @private
+   */
+  async _backgroundLoadHistoryPoints() {
+    const baja = this._getBaja()
+    if (!baja) return
+    
+    console.log('🔄 Starting background history point loading...')
+    
+    try {
+      // Query all history configs to find which equipment have histories
+      const historyBql = "station:|slot:/|bql:select slotPath as 'slotPath\\',id as 'id\\' from history:HistoryConfig"
+      
+      const table = await baja.Ord.make(historyBql).get()
+      if (!table || !table.cursor) {
+        console.log('🔄 No history configs found')
+        return
+      }
+      
+      const historyPaths = new Set()
+      const equipmentWithHistory = new Set()
+      
+      await new Promise(resolve => {
+        table.cursor({
+          limit: 5000,
+          each: function(record) {
+            try {
+              const slotPath = record.get('slotPath')?.toString() || ''
+              if (slotPath) {
+                historyPaths.add(slotPath.toLowerCase())
+                // Extract equipment ID from history path
+                const parts = slotPath.split('/')
+                for (const part of parts) {
+                  if (part && part.length > 0) {
+                    equipmentWithHistory.add(part.toLowerCase())
+                  }
+                }
+              }
+            } catch (e) {}
+          },
+          after: function() {
+            resolve()
+          }
+        })
+      })
+      
+      console.log(`🔄 Found ${historyPaths.size} history configs`)
+      
+      // Mark equipment that likely has history
+      for (const equip of this.equipment) {
+        const equipIdLower = (equip.id || '').toLowerCase()
+        if (equipmentWithHistory.has(equipIdLower)) {
+          equip.hasHistory = true
+        }
+      }
+      
+      // Load points for first few equipment with history (for immediate sparklines)
+      const equipWithHistory = this.equipment.filter(e => e.hasHistory).slice(0, 5)
+      console.log(`🔄 Pre-loading points for ${equipWithHistory.length} equipment with history`)
+      
+      for (const equip of equipWithHistory) {
+        try {
+          await this._loadPointsForEquipment(equip.id)
+        } catch (e) {}
+      }
+      
+      console.log('🔄 Background history loading complete')
+    } catch (e) {
+      console.warn('⚠️ Background history loading error:', e)
     }
   }
   
@@ -1515,3 +1596,4 @@ class NiagaraBQLAdapter {
 }
 
 export default NiagaraBQLAdapter;
+
