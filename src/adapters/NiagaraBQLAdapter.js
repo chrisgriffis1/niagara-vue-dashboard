@@ -1,40 +1,568 @@
 /**
- * Niagara BQL Adapter (Future Implementation)
- * Will connect to actual JACE systems using BQL queries
+ * Niagara BQL Adapter
+ * Connects to actual Niagara Tridium stations using BQL queries and BajaScript
  * Implements same interface as MockDataAdapter for seamless switching
+ * 
+ * Usage: Only works when running inside Niagara station (requires baja global)
  */
 
 class NiagaraBQLAdapter {
-  constructor(jaceUrl) {
-    this.jaceUrl = jaceUrl;
-    this.authenticated = false;
+  constructor() {
+    this.equipment = [];
+    this.points = [];
+    this.pointsMap = new Map();
+    this.equipmentPointsMap = new Map();
+    this.initialized = false;
+    this.subscribers = [];
   }
 
+  /**
+   * Check if running in Niagara environment
+   */
+  _isNiagara() {
+    return typeof baja !== 'undefined' && baja.Ord;
+  }
+
+  /**
+   * Initialize adapter - check for Niagara environment
+   */
   async initialize() {
-    // TODO: Implement Niagara authentication
-    throw new Error('NiagaraBQLAdapter not yet implemented');
+    if (this.initialized) {
+      return true;
+    }
+
+    if (!this._isNiagara()) {
+      throw new Error('NiagaraBQLAdapter requires Niagara station environment (baja global not found)');
+    }
+
+    console.log('🔄 Initializing Niagara BQL Adapter...');
+    
+    try {
+      // Discover all equipment and points
+      await this._discoverAllEquipment();
+      await this._discoverAllPoints();
+      
+      // Build lookup maps
+      this.points.forEach(point => {
+        this.pointsMap.set(point.id, point);
+      });
+      
+      this._buildEquipmentPointMapping();
+      
+      this.initialized = true;
+      
+      console.log(`✓ Niagara BQL Adapter initialized:`);
+      console.log(`  📦 Equipment: ${this.equipment.length}`);
+      console.log(`  📍 Points: ${this.points.length}`);
+      
+      return true;
+    } catch (error) {
+      console.error('❌ Failed to initialize Niagara adapter:', error);
+      throw error;
+    }
   }
 
+  /**
+   * Discover all equipment using BQL query
+   * @private
+   */
+  async _discoverAllEquipment() {
+    const bql = "station:|slot:/Drivers/BacnetNetwork|bql:select slotPath, displayName, name from bacnet:BacnetDevice";
+    
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error('Equipment discovery timeout'));
+      }, 30000);
+      
+      baja.Ord.make(bql).get().then(table => {
+        clearTimeout(timeout);
+        this.equipment = [];
+        
+        table.cursor({
+          limit: 1000,
+          each: (record) => {
+            try {
+              const slotPath = record.get('slotPath')?.toString() || '';
+              const displayName = record.get('displayName')?.toString() || '';
+              const name = record.get('name')?.toString() || '';
+              
+              if (!slotPath) return;
+              
+              // Extract equipment ID from slotPath
+              const pathParts = slotPath.split('/');
+              const equipId = pathParts[pathParts.length - 1] || slotPath;
+              
+              // Infer equipment type from name/displayName
+              const friendlyType = this._inferEquipmentType(name || displayName);
+              
+              // Extract location from name (e.g., "HP21 300 Link Hall" → "300 Link Hall")
+              const location = this._extractLocation(name || displayName);
+              
+              this.equipment.push({
+                id: equipId,
+                name: displayName || name || equipId,
+                type: friendlyType,
+                location: location,
+                ord: slotPath,
+                slotPath: slotPath
+              });
+            } catch (e) {
+              console.warn('Error processing equipment record:', e);
+            }
+          },
+          done: () => {
+            console.log(`✓ Discovered ${this.equipment.length} equipment`);
+            resolve();
+          }
+        });
+      }).catch(err => {
+        clearTimeout(timeout);
+        reject(err);
+      });
+    });
+  }
+
+  /**
+   * Discover all points using BQL query
+   * @private
+   */
+  async _discoverAllPoints() {
+    const bql = "station:|slot:/Drivers/BacnetNetwork|bql:select slotPath, displayName, name, out, status from control:ControlPoint";
+    
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error('Point discovery timeout'));
+      }, 60000);
+      
+      baja.Ord.make(bql).get().then(table => {
+        clearTimeout(timeout);
+        this.points = [];
+        
+        table.cursor({
+          limit: 10000,
+          each: (record) => {
+            try {
+              const slotPath = record.get('slotPath')?.toString() || '';
+              const displayName = record.get('displayName')?.toString() || '';
+              const name = record.get('name')?.toString() || '';
+              
+              if (!slotPath) return;
+              
+              // Get point value and status
+              let outValue = null;
+              let outStatus = 'ok';
+              let unit = '';
+              
+              try {
+                const outVal = record.get('out');
+                if (outVal) {
+                  const outStr = outVal.toString();
+                  // Parse format: "value {status}" or just "value"
+                  const match = outStr.match(/^(.+?)\s*\{([^}]+)\}/);
+                  if (match) {
+                    outValue = match[1].trim();
+                    outStatus = match[2].trim();
+                  } else {
+                    outValue = outStr;
+                  }
+                  
+                  // Try to parse as number
+                  const numVal = parseFloat(outValue);
+                  if (!isNaN(numVal)) {
+                    outValue = numVal;
+                    // Extract unit if present (e.g., "72.5 °F" → 72.5, unit="°F")
+                    const unitMatch = outStr.match(/(°F|°C|%|psi|cfm|rpm|kw|v|a)/i);
+                    if (unitMatch) {
+                      unit = unitMatch[1];
+                    }
+                  }
+                }
+              } catch (e) {
+                // Value parsing failed
+              }
+              
+              // Extract equipment ID from slotPath
+              // Format: slot:/Drivers/BacnetNetwork/AHU1/points/Monitor/SupplyTemp
+              const pathParts = slotPath.split('/');
+              const equipIndex = pathParts.findIndex(p => p === 'Drivers') + 2;
+              const equipId = pathParts[equipIndex] || '';
+              
+              // Create point ID
+              const pointId = `${equipId}_${name || displayName}`;
+              
+              // Determine point type
+              const pointType = this._inferPointType(name || displayName);
+              
+              this.points.push({
+                id: pointId,
+                name: displayName || name || 'Unknown',
+                type: pointType,
+                unit: unit,
+                value: outValue,
+                status: outStatus,
+                ord: slotPath,
+                slotPath: slotPath,
+                equipmentId: equipId,
+                trendable: this._isTrendable(pointType)
+              });
+            } catch (e) {
+              console.warn('Error processing point record:', e);
+            }
+          },
+          done: () => {
+            console.log(`✓ Discovered ${this.points.length} points`);
+            resolve();
+          }
+        });
+      }).catch(err => {
+        clearTimeout(timeout);
+        reject(err);
+      });
+    });
+  }
+
+  /**
+   * Build mapping of equipment to points
+   * @private
+   */
+  _buildEquipmentPointMapping() {
+    this.equipmentPointsMap.clear();
+    
+    this.points.forEach(point => {
+      if (point.equipmentId) {
+        if (!this.equipmentPointsMap.has(point.equipmentId)) {
+          this.equipmentPointsMap.set(point.equipmentId, []);
+        }
+        this.equipmentPointsMap.get(point.equipmentId).push(point);
+      }
+    });
+  }
+
+  /**
+   * Infer equipment type from name
+   * @private
+   */
+  _inferEquipmentType(name) {
+    const nameLower = (name || '').toLowerCase();
+    
+    if (nameLower.includes('ahu') || nameLower.match(/^ahu\d+/i)) return 'AHU';
+    if (nameLower.includes('mau') || nameLower.match(/^mau\d+/i)) return 'MAU';
+    if (nameLower.includes('vav')) return 'VAV';
+    if (nameLower.includes('hp') || nameLower.match(/^hp\d+/i)) return 'Heat Pump';
+    if (nameLower.includes('chiller')) return 'Chiller';
+    if (nameLower.includes('boiler')) return 'Boiler';
+    if (nameLower.includes('pump')) return 'Pump';
+    if (nameLower.includes('fan')) return 'Fan';
+    if (nameLower.includes('tower') || nameLower.includes('plant')) return 'Cooling Tower';
+    
+    return 'Equipment';
+  }
+
+  /**
+   * Infer point type from name
+   * @private
+   */
+  _inferPointType(name) {
+    const nameLower = (name || '').toLowerCase();
+    
+    if (nameLower.includes('temp')) return 'Temperature';
+    if (nameLower.includes('pressure')) return 'Pressure';
+    if (nameLower.includes('flow')) return 'Flow';
+    if (nameLower.includes('speed')) return 'Speed';
+    if (nameLower.includes('power')) return 'Power';
+    if (nameLower.includes('current')) return 'Current';
+    if (nameLower.includes('voltage')) return 'Voltage';
+    if (nameLower.includes('setpoint') || nameLower.includes('sp')) return 'Setpoint';
+    if (nameLower.includes('status') || nameLower.includes('run')) return 'Status';
+    
+    return 'Point';
+  }
+
+  /**
+   * Check if point type is trendable
+   * @private
+   */
+  _isTrendable(pointType) {
+    const trendableTypes = ['Temperature', 'Pressure', 'Flow', 'Speed', 'Power', 'Current', 'Voltage', 'Setpoint'];
+    return trendableTypes.includes(pointType);
+  }
+
+  /**
+   * Extract location from equipment name
+   * @private
+   */
+  _extractLocation(name) {
+    if (!name) return 'Unknown';
+    
+    // Pattern: "HP21 300 Link Hall" → "300 Link Hall"
+    const match = name.match(/^[A-Z]+\d+\s+(.+)$/);
+    if (match) {
+      return match[1];
+    }
+    
+    return 'Unknown';
+  }
+
+  /**
+   * Discover all equipment/devices
+   */
   async discoverDevices() {
-    // TODO: BQL query to discover devices
-    throw new Error('NiagaraBQLAdapter not yet implemented');
+    if (!this.initialized) {
+      await this.initialize();
+    }
+
+    return this.equipment.map(equip => ({
+      id: equip.id,
+      name: equip.name,
+      type: equip.type,
+      location: equip.location,
+      ord: equip.ord,
+      pointCount: this.equipmentPointsMap.get(equip.id)?.length || 0,
+      status: 'ok' // TODO: Check actual alarm status
+    }));
   }
 
+  /**
+   * Get all points for a specific equipment
+   */
+  async getPointsByEquipment(equipmentId) {
+    if (!this.initialized) {
+      await this.initialize();
+    }
+
+    const points = this.equipmentPointsMap.get(equipmentId) || [];
+    
+    return points.map(point => ({
+      id: point.id,
+      name: point.name,
+      type: point.type,
+      unit: point.unit,
+      value: point.value,
+      ord: point.ord,
+      displayValue: this._formatPointValue(point),
+      trendable: point.trendable
+    }));
+  }
+
+  /**
+   * Format point value for display
+   * @private
+   */
+  _formatPointValue(point) {
+    if (typeof point.value === 'number') {
+      const rounded = Math.round(point.value * 100) / 100;
+      return point.unit ? `${rounded} ${point.unit}` : rounded.toString();
+    }
+    return point.value?.toString() || 'N/A';
+  }
+
+  /**
+   * Get current value of a specific point
+   */
   async getPointValue(pointId) {
-    // TODO: BQL query for point value
-    throw new Error('NiagaraBQLAdapter not yet implemented');
+    if (!this.initialized) {
+      await this.initialize();
+    }
+
+    const point = this.pointsMap.get(pointId);
+    
+    if (!point) {
+      console.warn(`Point not found: ${pointId}`);
+      return null;
+    }
+
+    // Try to get live value
+    try {
+      const component = await baja.Ord.make(point.slotPath).get();
+      const outVal = component.get('out');
+      if (outVal) {
+        const valueStr = outVal.toString();
+        const numVal = parseFloat(valueStr);
+        point.value = !isNaN(numVal) ? numVal : valueStr;
+      }
+    } catch (e) {
+      console.warn(`Could not get live value for ${pointId}:`, e);
+    }
+
+    return {
+      id: point.id,
+      name: point.name,
+      type: point.type,
+      unit: point.unit,
+      value: point.value,
+      displayValue: this._formatPointValue(point),
+      timestamp: new Date()
+    };
   }
 
-  async getHistoricalData(pointId, timeRange) {
-    // TODO: BQL query for historical data
-    throw new Error('NiagaraBQLAdapter not yet implemented');
+  /**
+   * Get historical data for trending
+   */
+  async getHistoricalData(pointId, timeRange = {}) {
+    if (!this.initialized) {
+      await this.initialize();
+    }
+
+    const point = this.pointsMap.get(pointId);
+    
+    if (!point || !point.trendable) {
+      return [];
+    }
+
+    // Find history ID for this point
+    // History IDs are typically the point's path relative to station root
+    const historyId = await this._findHistoryId(point);
+    
+    if (!historyId) {
+      console.warn(`No history found for point: ${pointId}`);
+      return [];
+    }
+
+    const startDate = timeRange.start || new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const endDate = timeRange.end || new Date();
+
+    return this._queryHistory(historyId, startDate, endDate);
   }
 
+  /**
+   * Find history ID for a point
+   * @private
+   */
+  async _findHistoryId(point) {
+    try {
+      // Try to find history config for this point
+      // History configs are typically at: pointPath/history
+      const pointComponent = await baja.Ord.make(point.slotPath).get();
+      const historySlot = pointComponent.getSlots().slotName(/^history$/i).first();
+      
+      if (historySlot) {
+        const history = pointComponent.get(historySlot);
+        if (history) {
+          const id = history.get('id');
+          if (id) {
+            return id.toString();
+          }
+        }
+      }
+      
+      // Fallback: construct history ID from slotPath
+      // Remove "slot:" prefix and use as history ID
+      const historyPath = point.slotPath.replace(/^slot:/, '');
+      return historyPath;
+    } catch (e) {
+      console.warn(`Could not find history ID for ${point.id}:`, e);
+      return null;
+    }
+  }
+
+  /**
+   * Query history data using history: scheme
+   * @private
+   */
+  async _queryHistory(historyId, startDate, endDate) {
+    try {
+      // Format history ID for history: scheme
+      let historyOrd = historyId;
+      if (historyOrd.startsWith('/')) {
+        historyOrd = "history:" + historyOrd.substring(1);
+      } else {
+        historyOrd = "history:" + historyOrd;
+      }
+
+      const history = await baja.Ord.make(historyOrd).get();
+      if (!history) {
+        return [];
+      }
+
+      const dataPoints = [];
+      const startMillis = startDate.getTime();
+      const endMillis = endDate.getTime();
+
+      return new Promise((resolve, reject) => {
+        history.cursor({
+          each: (record) => {
+            try {
+              const ts = record.get('timestamp');
+              const tsMillis = ts.getMillis();
+              
+              // Filter by date range
+              if (tsMillis < startMillis || tsMillis > endMillis) {
+                return;
+              }
+
+              const val = record.get('value');
+              const valueStr = val.encodeToString();
+              const numVal = parseFloat(valueStr);
+              
+              if (!isNaN(numVal)) {
+                dataPoints.push({
+                  timestamp: new Date(tsMillis).toISOString(),
+                  value: numVal,
+                  pointId: historyId
+                });
+              }
+            } catch (e) {
+              // Skip invalid records
+            }
+          },
+          done: () => {
+            // Sort by timestamp
+            dataPoints.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+            resolve(dataPoints);
+          }
+        });
+      });
+    } catch (e) {
+      console.error(`Error querying history for ${historyId}:`, e);
+      return [];
+    }
+  }
+
+  /**
+   * Get all unique equipment types
+   */
+  async getEquipmentTypes() {
+    if (!this.initialized) {
+      await this.initialize();
+    }
+
+    const types = [...new Set(this.equipment.map(e => e.type))];
+    return types.sort();
+  }
+
+  /**
+   * Get building summary statistics
+   */
+  async getBuildingStats() {
+    if (!this.initialized) {
+      await this.initialize();
+    }
+
+    const equipmentTypes = await this.getEquipmentTypes();
+    const locations = [...new Set(this.equipment.map(e => e.location))].sort();
+
+    return {
+      datasetName: 'Niagara Station (Live)',
+      equipmentCount: this.equipment.length,
+      pointCount: this.points.length,
+      scheduleCount: 0, // TODO: Discover schedules
+      historyCount: 0, // TODO: Count histories
+      taggedComponentCount: 0,
+      equipmentTypes: equipmentTypes,
+      locations: locations,
+      equipmentByType: {},
+      pointTypes: {}
+    };
+  }
+
+  /**
+   * Subscribe to alarms (WebSocket)
+   */
   subscribeToAlarms(callback) {
-    // TODO: WebSocket subscription to alarms
-    throw new Error('NiagaraBQLAdapter not yet implemented');
+    // TODO: Implement WebSocket subscription to alarm service
+    console.warn('Alarm subscription not yet implemented');
+    return () => {}; // Return unsubscribe function
   }
 }
 
 export default NiagaraBQLAdapter;
-

@@ -85,9 +85,13 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import MockDataAdapter from './adapters/MockDataAdapter'
+import NiagaraBQLAdapter from './adapters/NiagaraBQLAdapter'
 import BuildingView from './views/BuildingView.vue'
 
-const adapter = new MockDataAdapter()
+// Auto-detect Niagara environment and use appropriate adapter
+const isNiagara = typeof baja !== 'undefined' && baja && baja.Ord
+const adapter = isNiagara ? new NiagaraBQLAdapter() : new MockDataAdapter()
+
 const stats = ref(null)
 const dataLoaded = ref(false)
 const testResults = ref([])
@@ -96,8 +100,15 @@ const showBuildingView = ref(false)
 onMounted(async () => {
   try {
     console.log('🚀 App mounting, initializing adapter...')
-    // Initialize adapter with REAL data
-    await adapter.switchDataset('real')
+    console.log(`📍 Environment: ${isNiagara ? 'Niagara Station' : 'Development (Mock Data)'}`)
+    
+    if (isNiagara) {
+      // Running in Niagara - use BQL adapter
+      await adapter.initialize()
+    } else {
+      // Development - use mock adapter with real data
+      await adapter.switchDataset('real')
+    }
     console.log('✓ Dataset switched to real')
     
     // Load building stats
