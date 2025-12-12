@@ -22,6 +22,9 @@
         <button @click="refreshEquipment" :disabled="loading">
           {{ loading ? 'Loading...' : 'Refresh' }}
         </button>
+        <button @click="forceRefresh" :disabled="loading" class="force-refresh-btn" title="Clear cache and reload all data">
+          🔄 Force Refresh
+        </button>
       </div>
     </div>
 
@@ -543,6 +546,26 @@ const refreshEquipment = async () => {
   }
 }
 
+// Force refresh - clear cache and reload
+const forceRefresh = async () => {
+  loading.value = true
+  try {
+    const adapter = deviceStore.getAdapter()
+    if (adapter && adapter.clearCache) {
+      adapter.clearCache()
+    } else {
+      // Fallback: clear localStorage directly
+      localStorage.removeItem('niagara-bql-cache')
+      localStorage.removeItem('niagara-history-cache')
+    }
+    // Reload the page to get fresh data
+    window.location.reload()
+  } catch (error) {
+    console.error('Failed to force refresh:', error)
+    loading.value = false
+  }
+}
+
 // Handle point click from card
 const handlePointClick = (point) => {
   emit('point-clicked', point)
@@ -661,6 +684,16 @@ const handleKeyboardShortcut = (event) => {
 
 .filter-btn {
   background-color: var(--color-bg-tertiary);
+}
+
+.force-refresh-btn {
+  background-color: var(--color-warning);
+  color: var(--color-bg-primary);
+  font-weight: var(--font-weight-semibold);
+}
+
+.force-refresh-btn:hover {
+  background-color: #f59e0b;
 }
 
 /* Filter Section */

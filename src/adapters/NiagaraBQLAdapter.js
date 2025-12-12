@@ -51,15 +51,41 @@ class NiagaraBQLAdapter {
       
       const data = JSON.parse(cached);
       // Cache expires after 4 hours
-      if (Date.now() - data.timestamp > 4 * 60 * 60 * 1000) {
+      const cacheAge = Date.now() - data.timestamp;
+      const cacheAgeMinutes = Math.round(cacheAge / 60000);
+      
+      if (cacheAge > 4 * 60 * 60 * 1000) {
         console.log('📦 Cache expired (>4 hours), refreshing...');
         return null;
       }
       
+      console.log(`📦 Cache age: ${cacheAgeMinutes} minutes`);
       return data;
     } catch (e) {
       return null;
     }
+  }
+  
+  /**
+   * Clear all cached data and force fresh load
+   */
+  clearCache() {
+    console.log('🗑️ Clearing all cached data...');
+    localStorage.removeItem(this.cacheKey);
+    localStorage.removeItem('niagara-history-cache');
+    this.equipment = [];
+    this.points = [];
+    this.alarms = [];
+    this.initialized = false;
+    console.log('✓ Cache cleared - reload page to fetch fresh data');
+  }
+  
+  /**
+   * Force refresh on next page load
+   */
+  scheduleRefresh() {
+    localStorage.setItem('niagara-force-refresh', 'true');
+    console.log('🔄 Refresh scheduled - reload page to fetch fresh data');
   }
 
   /**
@@ -99,13 +125,21 @@ class NiagaraBQLAdapter {
     console.log('🔄 Initializing Niagara BQL Adapter (fast mode)...');
     
     try {
+      // Check for force refresh flag
+      const forceRefresh = window.localStorage.getItem('niagara-force-refresh') === 'true';
+      if (forceRefresh) {
+        console.log('🔄 Force refresh requested - clearing cache');
+        window.localStorage.removeItem('niagara-force-refresh');
+        window.localStorage.removeItem(this.cacheKey);
+      }
+      
       // Try to load from cache first for instant startup
       const cached = this._loadFromCache();
-      if (cached && cached.equipment && cached.equipment.length > 0) {
+      if (cached && cached.equipment && cached.equipment.length > 0 && !forceRefresh) {
         console.log('⚡ Using cached data - INSTANT LOAD!');
         this.equipment = cached.equipment;
         this.alarms = cached.alarms || [];
-        console.log(`✓ Loaded ${this.equipment.length} equipment from cache`);
+        console.log(`✓ Loaded ${this.equipment.length} equipment, ${this.alarms.length} alarms from cache`);
         
         // Notify alarm callbacks if we have cached alarms
         if (this.alarms.length > 0 && this.alarmCallbacks && this.alarmCallbacks.length > 0) {
@@ -119,19 +153,29 @@ class NiagaraBQLAdapter {
         // Mark as initialized immediately for instant UI
         this.initialized = true;
         
-        // Refresh data in background (non-blocking, silent)
-        setTimeout(() => {
-          Promise.all([
-            this._discoverAllEquipment(),
-            this._discoverLocations(),
-            this._startLiveSubscriptions(),
-            this._startAlarmMonitoring(),
-            this._backgroundLoadHistoryPoints()
-          ]).then(() => {
+        // ALWAYS run background refresh to get fresh data
+        console.log('🔄 Starting background data refresh...');
+        setTimeout(async () => {
+          try {
+            // Run these in sequence so we can update cache progressively
+            await this._startAlarmMonitoring();
+            console.log('🔄 Alarms refreshed');
+            
+            await this._startLiveSubscriptions();
+            console.log('🔄 Status refreshed');
+            
+            // Save updated alarms/status to cache
             this._saveToCache();
-            console.log('✓ Background refresh complete');
-          }).catch(e => console.warn('Background refresh failed:', e));
-        }, 500); // Small delay to let UI render first
+            
+            // These are slower, run last
+            await this._backgroundLoadHistoryPoints();
+            console.log('🔄 History points refreshed');
+            
+            console.log('✓ Background refresh complete - reload page to see changes');
+          } catch (e) {
+            console.warn('Background refresh error:', e);
+          }
+        }, 1000); // Delay to let UI render first
         
         return true; // Exit early - we're done!
       }
