@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "build:niagara": "node build-niagara.js",
+    "test:build": "node test-niagara-build.js",
     "preview": "vite preview"
   },
   "dependencies": {

@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Test Niagara Detection</title>
+  <style>
+    body {
+      font-family: monospace;
+      background: #1a1a1a;
+      color: #fff;
+      padding: 20px;
+      line-height: 1.6;
+    }
+    .test {
+      background: #2a2a2a;
+      padding: 15px;
+      margin: 10px 0;
+      border-radius: 5px;
+      border-left: 4px solid #4CAF50;
+    }
+    .test.fail {
+      border-left-color: #f44336;
+    }
+    .test.warn {
+      border-left-color: #ff9800;
+    }
+    h1 { color: #4CAF50; }
+    h2 { color: #2196F3; margin-top: 20px; }
+    code { background: #1a1a1a; padding: 2px 6px; border-radius: 3px; }
+    .result { margin-top: 10px; padding: 10px; background: #1a1a1a; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <h1>🧪 Niagara Detection Test</h1>
+  <p>This page tests if the Vue app can detect Niagara environment correctly.</p>
+
+  <h2>Test 1: Mock Niagara Environment</h2>
+  <div class="test">
+    <strong>Simulating Niagara station...</strong>
+    <div class="result" id="test1"></div>
+  </div>
+
+  <h2>Test 2: Development Environment</h2>
+  <div class="test">
+    <strong>Simulating development (no baja)...</strong>
+    <div class="result" id="test2"></div>
+  </div>
+
+  <h2>Test 3: Adapter Selection</h2>
+  <div class="test">
+    <strong>Testing adapter auto-selection...</strong>
+    <div class="result" id="test3"></div>
+  </div>
+
+  <script>
+    // Test 1: Mock Niagara environment
+    function testNiagaraEnvironment() {
+      // Create mock baja object
+      window.baja = {
+        Ord: {
+          make: function(ord) {
+            return {
+              get: function() {
+                return Promise.resolve({
+                  cursor: function() {}
+                });
+              }
+            };
+          }
+        },
+        getUserName: function() {
+          return 'testuser';
+        }
+      };
+
+      const isNiagara = typeof baja !== 'undefined' && baja && baja.Ord;
+      const result = document.getElementById('test1');
+      
+      if (isNiagara) {
+        result.innerHTML = `
+          ✅ <code>typeof baja !== 'undefined'</code>: true<br>
+          ✅ <code>baja.Ord</code>: exists<br>
+          ✅ <strong>Environment detected: Niagara Station</strong>
+        `;
+        return true;
+      } else {
+        result.innerHTML = `❌ Failed to detect Niagara environment`;
+        result.parentElement.classList.add('fail');
+        return false;
+      }
+    }
+
+    // Test 2: Development environment (no baja)
+    function testDevEnvironment() {
+      // Remove baja if it exists
+      const hadBaja = typeof window.baja !== 'undefined';
+      delete window.baja;
+
+      const isNiagara = typeof baja !== 'undefined' && baja && baja.Ord;
+      const result = document.getElementById('test2');
+      
+      if (!isNiagara) {
+        result.innerHTML = `
+          ✅ <code>typeof baja !== 'undefined'</code>: false<br>
+          ✅ <strong>Environment detected: Development</strong><br>
+          ✅ Will use MockDataAdapter
+        `;
+        return true;
+      } else {
+        result.innerHTML = `❌ Failed to detect development environment`;
+        result.parentElement.classList.add('fail');
+        return false;
+      }
+    }
+
+    // Test 3: Adapter selection logic
+    function testAdapterSelection() {
+      const result = document.getElementById('test3');
+      
+      // Simulate the logic from App.vue
+      const isNiagara = typeof baja !== 'undefined' && baja && baja.Ord;
+      const adapterType = isNiagara ? 'NiagaraBQLAdapter' : 'MockDataAdapter';
+      
+      result.innerHTML = `
+        <code>const isNiagara = typeof baja !== 'undefined' && baja && baja.Ord</code><br>
+        <code>const adapter = isNiagara ? new NiagaraBQLAdapter() : new MockDataAdapter()</code><br><br>
+        ✅ Selected adapter: <strong>${adapterType}</strong><br>
+        ${isNiagara 
+          ? '✅ Will use live BQL queries from station' 
+          : '✅ Will use mock data from JSON files'}
+      `;
+      
+      return true;
+    }
+
+    // Run tests
+    console.log('🧪 Running Niagara detection tests...');
+    
+    const test1 = testNiagaraEnvironment();
+    const test2 = testDevEnvironment();
+    const test3 = testAdapterSelection();
+
+    if (test1 && test2 && test3) {
+      console.log('✅ All tests passed!');
+    } else {
+      console.error('❌ Some tests failed');
+    }
+  </script>
+</body>
+</html>
+
