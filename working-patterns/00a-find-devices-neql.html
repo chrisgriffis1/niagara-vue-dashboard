@@ -1,0 +1,234 @@
+<!-- @noSnoop -->
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Find Devices by Tag - NEQL Method</title>
+  <style>
+    body { font-family: Arial; background: #1e1e1e; color: #fff; padding: 20px; }
+    button { background: #4CAF50; color: white; border: none; padding: 10px 20px; cursor: pointer; margin: 5px; }
+    #result { background: #2d2d2d; padding: 15px; border-radius: 4px; margin-top: 10px; font-family: monospace; min-height: 100px; }
+    .device-item { margin: 10px 0; padding: 10px; background: #3d3d3d; border-radius: 4px; }
+    .debug { color: #888; font-size: 0.9em; margin-top: 10px; }
+    .timing { color: #4CAF50; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h1>Find Devices by Tag - NEQL Method</h1>
+  <p>This test uses NEQL to query for devices with n:device tag.</p>
+  
+  <button onclick="findDevicesNEQL()">Find Devices (NEQL)</button>
+  <div id="result">Click button to test NEQL method</div>
+
+  <script type='text/javascript' src='/requirejs/config.js'></script>
+  <script type='text/javascript' src='/module/js/com/tridium/js/ext/require/require.min.js'></script>
+
+  <script>
+    /**
+     * NEQL Method: Query devices by tag using NEQL
+     * 
+     * Strategy:
+     * 1. Use NEQL query: 'station:|slot:/Drivers/BacnetNetwork|neql: n:device'
+     * 2. Process results with cursor
+     * 3. Batch resolve ORDs
+     * 4. Check tags to verify
+     */
+    
+    window.findDevicesNEQL = function() {
+      const resultDiv = document.getElementById('result');
+      resultDiv.innerHTML = 'Loading Baja...';
+      
+      const timings = {
+        start: Date.now(),
+        neqlQueryStart: null,
+        neqlQueryEnd: null,
+        batchResolveStart: null,
+        batchResolveEnd: null,
+        tagCheckStart: null,
+        tagCheckEnd: null,
+        totalEnd: null
+      };
+      
+      if (typeof require !== 'undefined') {
+        require(["baja!", "Promise"], function (baja, Promise) {
+          runNEQLTest(baja, timings);
+        }, function(err) {
+          resultDiv.innerHTML = 'Error loading Baja: ' + (err.message || err);
+        });
+      } else {
+        var attempts = 0;
+        var checkBaja = setInterval(function() {
+          attempts++;
+          if (typeof baja !== 'undefined') {
+            clearInterval(checkBaja);
+            runNEQLTest(baja, timings);
+          } else if (attempts > 20) {
+            clearInterval(checkBaja);
+            resultDiv.innerHTML = 'Error: Baja not available';
+          }
+        }, 500);
+      }
+    };
+    
+    function runNEQLTest(baja, timings) {
+      const resultDiv = document.getElementById('result');
+      resultDiv.innerHTML = '🔍 Starting NEQL query...';
+      
+      timings.neqlQueryStart = Date.now();
+      
+      const neqlQueryOrd = 'station:|slot:/Drivers/BacnetNetwork|neql: n:device';
+      const ords = [];
+      
+      new Promise(function(resolve, reject) {
+        const timeout = setTimeout(function() { 
+          reject(new Error('NEQL query timeout (60s)')); 
+        }, 60000);
+        
+        baja.Ord.make(neqlQueryOrd).get({
+          cursor: {
+            limit: 10000,
+            each: function(result) {
+              try {
+                const ord = result.getOrdToEntity ? result.getOrdToEntity().toString() : null;
+                if (ord) {
+                  ords.push(ord);
+                }
+              } catch(e) {
+                console.warn('Error getting ORD from NEQL result:', e);
+              }
+            },
+            after: function() {
+              clearTimeout(timeout);
+              timings.neqlQueryEnd = Date.now();
+              const neqlTime = timings.neqlQueryEnd - timings.neqlQueryStart;
+              console.log('⏱️ NEQL Query Time:', neqlTime + 'ms', 'Found', ords.length, 'ORDs');
+              
+              if (ords.length > 0) {
+                resolve({ method: 'neql', ords: ords });
+              } else {
+                reject(new Error('NEQL returned no results'));
+              }
+            }
+          }
+        }).catch(function(err) {
+          clearTimeout(timeout);
+          timings.neqlQueryEnd = Date.now();
+          reject(err);
+        });
+      }).then(function(result) {
+        resultDiv.innerHTML = '✅ NEQL query successful!<br>' +
+          'Found ' + result.ords.length + ' device(s)<br>' +
+          '⏱️ NEQL Query Time: ' + (timings.neqlQueryEnd - timings.neqlQueryStart) + 'ms<br>' +
+          'Batch resolving components...';
+        
+        timings.batchResolveStart = Date.now();
+        
+        // Batch resolve all ORDs
+        const batchResolve = new baja.BatchResolve(result.ords);
+        
+        return batchResolve.resolve({
+          each: function(component, index) {
+            // Component resolved
+          }
+        }).then(function() {
+          timings.batchResolveEnd = Date.now();
+          const batchTime = timings.batchResolveEnd - timings.batchResolveStart;
+          console.log('⏱️ Batch Resolve Time:', batchTime + 'ms');
+          
+          resultDiv.innerHTML += '<br>✅ Batch resolve complete<br>' +
+            '⏱️ Batch Resolve Time: ' + batchTime + 'ms<br>' +
+            'Checking tags...';
+          
+          timings.tagCheckStart = Date.now();
+          
+          // Now check tags for all resolved components
+          const devicesWithTag = [];
+          let checkedCount = 0;
+          const tagPromises = [];
+          
+          // Resolve again to check tags (we need the components)
+          const batchResolve2 = new baja.BatchResolve(result.ords);
+          return batchResolve2.resolve({
+            each: function(component, index) {
+              const ord = result.ords[index];
+              checkedCount++;
+              
+              // Check tags
+              const tagPromise = component.tags().then(function(tags) {
+                const allTags = tags.getAll ? tags.getAll() : [];
+                const deviceTag = allTags.find(function(tag) {
+                  if (!tag.getId) return false;
+                  const tagId = tag.getId();
+                  if (typeof tagId === 'object' && tagId.$qname) {
+                    return tagId.$qname === 'n:device';
+                  } else if (typeof tagId === 'string') {
+                    return tagId === 'n:device';
+                  }
+                  if (tagId.$dict === 'n' && tagId.$name === 'device') {
+                    return true;
+                  }
+                  return false;
+                });
+                
+                if (deviceTag) {
+                  const deviceName = component.getDisplayName ? component.getDisplayName() : 
+                                   (component.getName ? component.getName() : 'Unknown');
+                  const path = ord.replace('station:|slot:', '');
+                  
+                  devicesWithTag.push({
+                    name: deviceName,
+                    path: path,
+                    ord: ord
+                  });
+                }
+              }).catch(function(err) {
+                console.warn('Error checking tags for', ord, err);
+              });
+              
+              tagPromises.push(tagPromise);
+            }
+          }).then(function() {
+            // Wait for all tag checks to complete
+            return Promise.all(tagPromises);
+          }).then(function() {
+            timings.tagCheckEnd = Date.now();
+            timings.totalEnd = Date.now();
+            
+            const tagCheckTime = timings.tagCheckEnd - timings.tagCheckStart;
+            const totalTime = timings.totalEnd - timings.start;
+            
+            console.log('⏱️ Tag Check Time:', tagCheckTime + 'ms');
+            console.log('⏱️ Total Time:', totalTime + 'ms');
+            console.log('✅ Found', devicesWithTag.length, 'devices with n:device tag');
+            
+            // Display results with timing breakdown
+            let html = '<div class="timing">⏱️ TIMING BREAKDOWN:</div>';
+            html += '<div class="debug">';
+            html += 'NEQL Query: ' + (timings.neqlQueryEnd - timings.neqlQueryStart) + 'ms<br>';
+            html += 'Batch Resolve: ' + (timings.batchResolveEnd - timings.batchResolveStart) + 'ms<br>';
+            html += 'Tag Check: ' + tagCheckTime + 'ms<br>';
+            html += '<strong>Total Time: ' + totalTime + 'ms</strong><br>';
+            html += '</div>';
+            
+            html += '<div style="margin-top: 20px;"><strong>✅ Found ' + devicesWithTag.length + ' device(s) with n:device tag</strong></div>';
+            
+            devicesWithTag.forEach(function(device) {
+              html += '<div class="device-item">' + device.name + ' (' + device.path + ')</div>';
+            });
+            
+            resultDiv.innerHTML = html;
+          });
+        });
+      }).catch(function(err) {
+        timings.totalEnd = Date.now();
+        const totalTime = timings.totalEnd - timings.start;
+        
+        resultDiv.innerHTML = '❌ NEQL Error: ' + (err.message || err) + '<br>' +
+          '<div class="debug">Total time before error: ' + totalTime + 'ms</div>';
+        console.error('❌ NEQL Error:', err);
+      });
+    }
+  </script>
+</body>
+</html>
+

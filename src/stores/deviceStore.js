@@ -14,7 +14,7 @@ export const useDeviceStore = defineStore('device', {
     buildingStats: null,
     loading: false,
     error: null,
-    adapter: null
+    adapter: null // Set by App.vue after initialization
   }),
 
   getters: {
@@ -58,15 +58,49 @@ export const useDeviceStore = defineStore('device', {
   actions: {
     /**
      * Initialize data adapter
+     * Note: Adapter should be set by App.vue after environment detection
      */
     async initializeAdapter() {
       if (!this.adapter) {
+        // Fallback: create MockDataAdapter if adapter not set by App.vue
+        console.warn('⚠️ Adapter not set by App.vue, creating MockDataAdapter fallback')
         this.adapter = new MockDataAdapter()
         // Load REAL Niagara data by default
         console.log('🔄 Loading Real Niagara Data...')
         await this.adapter.switchDataset('real')
         console.log('✅ Real data loaded! 83 equipment, 38k+ points')
+        return
       }
+      
+      // Adapter already set by App.vue - check if it's already initialized
+      // NiagaraBQLAdapter sets initialized=true after discovery, MockDataAdapter uses initialized flag
+      if (this.adapter.initialized === true) {
+        // Already initialized, nothing to do
+        return
+      }
+      
+      // Only initialize if not already initialized and has initialize method
+      if (typeof this.adapter.initialize === 'function' && this.adapter.initialized !== true) {
+        // Check if it's a NiagaraBQLAdapter (already initialized by App.vue)
+        const adapterName = this.adapter.constructor.name
+        if (adapterName === 'NiagaraBQLAdapter' && this.adapter.equipment && this.adapter.equipment.length > 0) {
+          // Already initialized (has equipment data), just mark as initialized
+          this.adapter.initialized = true
+          return
+        }
+        
+        // Otherwise, ensure it's initialized
+        console.log('🔄 Ensuring adapter is initialized...')
+        await this.adapter.initialize()
+      }
+    },
+    
+    /**
+     * Set the adapter (called by App.vue after environment detection)
+     */
+    setAdapter(adapter) {
+      this.adapter = adapter
+      console.log('✓ DeviceStore adapter set:', adapter.constructor.name)
     },
 
     /**

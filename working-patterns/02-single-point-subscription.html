@@ -1,0 +1,231 @@
+<!-- @noSnoop -->
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Pattern 2: Single Point Subscription</title>
+  <style>
+    body { font-family: Arial; background: #1e1e1e; color: #fff; padding: 20px; }
+    button { background: #4CAF50; color: white; border: none; padding: 10px 20px; cursor: pointer; margin: 5px; }
+    button.stop { background: #f44336; }
+    #result { background: #2d2d2d; padding: 15px; border-radius: 4px; margin-top: 10px; font-family: monospace; min-height: 100px; }
+  </style>
+</head>
+<body>
+  <h1>Pattern 2: Single Point Subscription</h1>
+  <p>This example demonstrates how to subscribe to a single point's out value and receive live updates.</p>
+  
+  <h2>What This Does</h2>
+  <ul>
+    <li>Finds a temperature point (changes frequently for testing)</li>
+    <li>Creates a subscriber and subscribes to the point</li>
+    <li>Filters for 'out' property changes only</li>
+    <li>Displays live updates as values change</li>
+    <li>Properly cleans up when stopped</li>
+  </ul>
+
+  <button onclick="testSubscription()">Test Point Subscription</button>
+  <button id="stopBtn" onclick="stopSubscription()" class="stop" style="display:none;">Stop Subscription</button>
+  <div id="result">Click "Test Point Subscription" to start</div>
+
+  <script type='text/javascript' src='/requirejs/config.js'></script>
+  <script type='text/javascript' src='/module/js/com/tridium/js/ext/require/require.min.js'></script>
+
+  <script>
+    /**
+     * Pattern 2: Single Point Subscription
+     * 
+     * This pattern shows how to:
+     * 1. Find a point using BQL
+     * 2. Create a subscriber
+     * 3. Subscribe to point component (not the out property directly)
+     * 4. Filter for 'out' property changes
+     * 5. Clean up properly with unsubscribeAll() and detach()
+     * 
+     * Key Points:
+     * - Create subscriber BEFORE getting the point
+     * - Pass subscriber to .get({ subscriber: subscriber })
+     * - Subscribe to the point component, not the out property
+     * - Filter in changed handler: prop.getName() === 'out'
+     * - 'this' in handler refers to the component (point)
+     * - Cleanup: unsubscribeAll() then detach()
+     * 
+     * Common Mistakes:
+     * - Don't subscribe to out property directly (causes isMounted error)
+     * - Don't forget to pass subscriber to .get()
+     * - Don't use unsubscribe() - use unsubscribeAll()
+     */
+    
+    // Global subscription state
+    window.activeSubscriber = null;
+    
+    window.testSubscription = function() {
+      const resultDiv = document.getElementById('result');
+      resultDiv.innerHTML = 'Loading Baja...';
+      
+      if (typeof require !== 'undefined') {
+        require(["baja!", "Promise"], function (baja, Promise) {
+          runSubscriptionTest(baja);
+        }, function(err) {
+          resultDiv.innerHTML = 'Error loading Baja: ' + (err.message || err);
+        });
+      } else {
+        var attempts = 0;
+        var checkBaja = setInterval(function() {
+          attempts++;
+          if (typeof baja !== 'undefined') {
+            clearInterval(checkBaja);
+            runSubscriptionTest(baja);
+          } else if (attempts > 20) {
+            clearInterval(checkBaja);
+            resultDiv.innerHTML = 'Error: Baja not available';
+          }
+        }, 500);
+      }
+    };
+    
+    window.stopSubscription = function() {
+      if (window.activeSubscriber) {
+        try {
+          window.activeSubscriber.unsubscribeAll();
+        } catch(e) {
+          console.warn('Error unsubscribing:', e);
+        }
+        
+        try {
+          window.activeSubscriber.detach();
+        } catch(e) {
+          console.warn('Error detaching:', e);
+        }
+        
+        window.activeSubscriber = null;
+        document.getElementById('stopBtn').style.display = 'none';
+        const resultDiv = document.getElementById('result');
+        resultDiv.innerHTML = resultDiv.innerHTML + '<br><br><strong style="color:#4CAF50;">Subscription stopped.</strong>';
+      }
+    };
+    
+    function runSubscriptionTest(baja) {
+      const resultDiv = document.getElementById('result');
+      resultDiv.innerHTML = '🔍 Finding a temperature point...';
+      
+      // Find a temperature point (changes frequently for testing)
+      const bql = "station:|slot:/Drivers/BacnetNetwork|bql:select slotPath, name, displayName from control:ControlPoint where name like '%Temp%' or displayName like '%Temp%'";
+      
+      baja.Ord.make(bql).get().then(function(table) {
+        let pointSlotPath = null;
+        let pointName = null;
+        let displayName = null;
+        
+        table.cursor({
+          limit: 1,
+          each: function(record) {
+            const slotPath = record.get('slotPath')?.toString();
+            const name = record.get('name')?.toString();
+            const dispName = record.get('displayName')?.toString();
+            
+            if (slotPath && name) {
+              // CRITICAL: Clean slotPath - remove "slot:" prefix if present
+              // See BAJA_PATH_HANDLING_NOTE.md for details
+              let cleanSlotPath = slotPath.toString().trim().replace(/^slot:/, '');
+              pointSlotPath = cleanSlotPath;
+              pointName = name;
+              displayName = dispName || name;
+            }
+          },
+          after: function() {
+            if (!pointSlotPath) {
+              resultDiv.innerHTML = '❌ Error: No points found';
+              return;
+            }
+            
+            setupSubscription(baja, pointSlotPath, pointName, displayName, resultDiv);
+          }
+        });
+      }).catch(function(err) {
+        resultDiv.innerHTML = '❌ Error in BQL query: ' + (err.message || err);
+        console.error('❌ BQL Error:', err);
+      });
+    }
+    
+    function setupSubscription(baja, pointSlotPath, pointName, displayName, resultDiv) {
+      // Create subscriber BEFORE getting the point (per official example)
+      const subscriber = new baja.Subscriber();
+      window.activeSubscriber = subscriber;
+      let updateCount = 0;
+      
+      // Construct point ORD from slotPath
+      const cleanSlotPath = pointSlotPath.startsWith('/') ? pointSlotPath : '/' + pointSlotPath;
+      const pointOrd = 'station:|slot:' + cleanSlotPath;
+      
+      resultDiv.innerHTML = '✅ Subscribed to: <strong style="color:#4CAF50;">' + displayName + '</strong><br>' +
+        'Point: ' + pointName + '<br><br>' +
+        '<div id="liveValue" style="font-size:18px; color:#2196F3; margin:10px 0;">Loading...</div>' +
+        '<div id="updateCount" style="font-size:12px; color:#888;">Updates: 0</div>';
+      
+      // Update function
+      function update(point) {
+        try {
+          const out = point.get('out');
+          if (out) {
+            const parsed = parseValue(out.toString());
+            const liveDiv = document.getElementById('liveValue');
+            const countDiv = document.getElementById('updateCount');
+            
+            liveDiv.innerHTML = '<strong>Current Value:</strong> <span style="color:#4CAF50; font-weight:bold;">' + parsed.value + '</span>' +
+              (parsed.status ? ' <span style="color:#888;">(' + parsed.status + ')</span>' : '') +
+              ' <span style="color:#888; font-size:12px;">@ ' + new Date().toLocaleTimeString() + '</span>';
+            
+            updateCount++;
+            countDiv.textContent = 'Updates received: ' + updateCount;
+            console.log('Update #' + updateCount + ':', parsed.value, parsed.status);
+          }
+        } catch(e) {
+          console.error('Error in update:', e);
+        }
+      }
+      
+      // Attach changed handler - filter for 'out' property
+      subscriber.attach('changed', function(prop) {
+        // Only update when 'out' property changes
+        if (prop && prop.getName && prop.getName() === 'out') {
+          // 'this' refers to the component (point) in the handler
+          update(this);
+        }
+      });
+      
+      // Get point WITH subscriber (CRITICAL - per official example)
+      baja.Ord.make(pointOrd).get({ subscriber: subscriber })
+        .then(function(point) {
+          // Update once to capture initial value
+          update(point);
+          
+          // Show stop button
+          document.getElementById('stopBtn').style.display = 'inline-block';
+          
+          console.log('✅ Subscription active - watching for changes to point.out...');
+        })
+        .catch(function(err) {
+          resultDiv.innerHTML = '❌ Error getting point: ' + (err.message || err) + '<br>ORD: ' + pointOrd;
+          console.error('❌ Point Error:', err);
+        });
+    }
+    
+    // Helper to parse "value {status}" format
+    function parseValue(valueStr) {
+      const match = valueStr.match(/^(.+?)\s*\{([^}]+)\}/);
+      if (match) {
+        return {
+          value: match[1].trim(),
+          status: match[2].trim()
+        };
+      }
+      return {
+        value: valueStr.trim(),
+        status: null
+      };
+    }
+  </script>
+</body>
+</html>
+

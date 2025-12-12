@@ -183,7 +183,6 @@ import SmartSuggestions from './SmartSuggestions.vue'
 import PointChart from './PointChart.vue'
 import TableView from './TableView.vue'
 import { useDeviceStore } from '../../stores/deviceStore'
-import MockDataAdapter from '../../adapters/MockDataAdapter'
 
 const props = defineProps({
   initialEquipment: {
@@ -207,7 +206,7 @@ const props = defineProps({
 const emit = defineEmits(['close'])
 
 const deviceStore = useDeviceStore()
-const adapter = new MockDataAdapter()
+const adapter = computed(() => deviceStore.adapter || deviceStore.getAdapter())
 
 const viewMode = ref('chart')
 // Default to 24 hours
@@ -259,7 +258,7 @@ const chartPoint = computed(() => {
 // Initialize with initial point if provided
 onMounted(async () => {
   // Initialize adapter
-  await adapter.initialize()
+  await deviceStore.initializeAdapter()
   
   // Load equipment points
   await loadAllEquipmentPoints()
@@ -381,8 +380,14 @@ const loadHistoricalData = async () => {
   historicalData.value = {}
   
   try {
+    const currentAdapter = adapter.value
+    if (!currentAdapter) {
+      console.error('Adapter not available')
+      return
+    }
+    await deviceStore.initializeAdapter()
     for (const point of selectedPoints.value) {
-      const data = await adapter.getHistoricalData(point.id, { start: timeRange.value.start, end: timeRange.value.end })
+      const data = await currentAdapter.getHistoricalData(point.id, { start: timeRange.value.start, end: timeRange.value.end })
       historicalData.value[point.id] = data
     }
   } catch (error) {

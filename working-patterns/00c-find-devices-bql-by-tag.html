@@ -1,0 +1,221 @@
+<!-- @noSnoop -->
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Find Devices by Tag - BQL Tag Query Test</title>
+  <style>
+    body { font-family: Arial; background: #1e1e1e; color: #fff; padding: 20px; }
+    button { background: #4CAF50; color: white; border: none; padding: 10px 20px; cursor: pointer; margin: 5px; }
+    #result { background: #2d2d2d; padding: 15px; border-radius: 4px; margin-top: 10px; font-family: monospace; min-height: 100px; }
+    .device-item { margin: 10px 0; padding: 10px; background: #3d3d3d; border-radius: 4px; }
+    .debug { color: #888; font-size: 0.9em; margin-top: 10px; }
+    .timing { color: #4CAF50; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h1>Find Devices by Tag - BQL Tag Query Test</h1>
+  <p>Testing if BQL can query by tags directly (not just by component type).</p>
+  <p>This will test various BQL syntaxes to find components with n:device tag, including points inside points folders.</p>
+  
+  <button onclick="testBQLTagQueries()">Test BQL Tag Queries</button>
+  <div id="result">Click button to test various BQL tag query syntaxes</div>
+
+  <script type='text/javascript' src='/requirejs/config.js'></script>
+  <script type='text/javascript' src='/module/js/com/tridium/js/ext/require/require.min.js'></script>
+
+  <script>
+    /**
+     * Test various BQL syntaxes to see if BQL can query by tags
+     * 
+     * Tests:
+     * 1. bql:select from component where tag = 'n:device'
+     * 2. bql:select from * where tag = 'n:device'
+     * 3. bql:select slotPath from bacnet:BacnetDevice where tag = 'n:device'
+     * 4. Other possible syntaxes
+     */
+    
+    window.testBQLTagQueries = function() {
+      const resultDiv = document.getElementById('result');
+      resultDiv.innerHTML = 'Loading Baja...';
+      
+      if (typeof require !== 'undefined') {
+        require(["baja!", "Promise"], function (baja, Promise) {
+          runBQLTagTests(baja);
+        }, function(err) {
+          resultDiv.innerHTML = 'Error loading Baja: ' + (err.message || err);
+        });
+      } else {
+        var attempts = 0;
+        var checkBaja = setInterval(function() {
+          attempts++;
+          if (typeof baja !== 'undefined') {
+            clearInterval(checkBaja);
+            runBQLTagTests(baja);
+          } else if (attempts > 20) {
+            clearInterval(checkBaja);
+            resultDiv.innerHTML = 'Error: Baja not available';
+          }
+        }, 500);
+      }
+    };
+    
+    function runBQLTagTests(baja) {
+      const resultDiv = document.getElementById('result');
+      resultDiv.innerHTML = '🔍 Testing various BQL tag query syntaxes...';
+      
+      const queries = [
+        {
+          name: 'Component with tag filter',
+          query: "station:|slot:/Drivers/BacnetNetwork|bql:select slotPath from component where tag = 'n:device'"
+        },
+        {
+          name: 'All components with tag filter',
+          query: "station:|slot:/Drivers/BacnetNetwork|bql:select slotPath from * where tag = 'n:device'"
+        },
+        {
+          name: 'BacnetDevice with tag filter',
+          query: "station:|slot:/Drivers/BacnetNetwork|bql:select slotPath from bacnet:BacnetDevice where tag = 'n:device'"
+        },
+        {
+          name: 'ControlPoint with tag filter',
+          query: "station:|slot:/Drivers/BacnetNetwork|bql:select slotPath from control:ControlPoint where tag = 'n:device'"
+        },
+        {
+          name: 'Component with tag LIKE',
+          query: "station:|slot:/Drivers/BacnetNetwork|bql:select slotPath from component where tag like '%device%'"
+        },
+        {
+          name: 'Component with hasTag',
+          query: "station:|slot:/Drivers/BacnetNetwork|bql:select slotPath from component where hasTag('n:device')"
+        }
+      ];
+      
+      const results = [];
+      let completedTests = 0;
+      
+      function testQuery(queryInfo, index) {
+        const startTime = Date.now();
+        
+        return new Promise(function(resolve, reject) {
+          const timeout = setTimeout(function() {
+            reject(new Error('Query timeout (10s)'));
+          }, 10000);
+          
+          baja.Ord.make(queryInfo.query).get().then(function(table) {
+            clearTimeout(timeout);
+            const slotPaths = [];
+            const endTime = Date.now();
+            const queryTime = endTime - startTime;
+            
+            if (!table) {
+              resolve({
+                name: queryInfo.name,
+                query: queryInfo.query,
+                success: false,
+                error: 'Query returned null/undefined table',
+                time: queryTime
+              });
+              return;
+            }
+            
+            try {
+              table.cursor({
+                limit: 1000,
+                each: function(record) {
+                  try {
+                    let slotPath = record.get('slotPath')?.toString() || '';
+                    if (slotPath) {
+                      slotPath = slotPath.replace(/^slot:/, '').trim();
+                      if (slotPath) {
+                        slotPaths.push(slotPath);
+                      }
+                    }
+                  } catch(e) {
+                    // Skip errors
+                  }
+                },
+                after: function() {
+                  resolve({
+                    name: queryInfo.name,
+                    query: queryInfo.query,
+                    success: true,
+                    count: slotPaths.length,
+                    slotPaths: slotPaths.slice(0, 10), // First 10 for display
+                    time: queryTime
+                  });
+                }
+              });
+            } catch(cursorErr) {
+              resolve({
+                name: queryInfo.name,
+                query: queryInfo.query,
+                success: false,
+                error: cursorErr.message || cursorErr,
+                time: queryTime
+              });
+            }
+          }).catch(function(err) {
+            clearTimeout(timeout);
+            const endTime = Date.now();
+            resolve({
+              name: queryInfo.name,
+              query: queryInfo.query,
+              success: false,
+              error: err.message || err,
+              time: endTime - startTime
+            });
+          });
+        });
+      }
+      
+      // Test all queries
+      Promise.all(queries.map(function(q, i) { return testQuery(q, i); })).then(function(testResults) {
+        let html = '<div class="timing">BQL TAG QUERY TEST RESULTS:</div><div class="debug">';
+        
+        testResults.forEach(function(result) {
+          html += '<div style="margin: 15px 0; padding: 10px; background: #3d3d3d; border-radius: 4px;">';
+          html += '<strong>' + result.name + '</strong><br>';
+          html += 'Query: <code style="color: #888; font-size: 0.9em;">' + result.query + '</code><br>';
+          html += 'Time: ' + result.time + 'ms<br>';
+          
+          if (result.success) {
+            html += '<span style="color: #4CAF50;">✅ Success</span> - Found ' + result.count + ' component(s)<br>';
+            if (result.slotPaths && result.slotPaths.length > 0) {
+              html += 'Sample paths:<br>';
+              result.slotPaths.forEach(function(path) {
+                html += '&nbsp;&nbsp;• ' + path + '<br>';
+              });
+              if (result.count > 10) {
+                html += '&nbsp;&nbsp;... and ' + (result.count - 10) + ' more<br>';
+              }
+            }
+          } else {
+            html += '<span style="color: #f44336;">❌ Failed</span> - ' + (result.error || 'Unknown error') + '<br>';
+          }
+          
+          html += '</div>';
+        });
+        
+        html += '</div>';
+        
+        // Summary
+        const successful = testResults.filter(function(r) { return r.success; });
+        const totalFound = successful.reduce(function(sum, r) { return sum + (r.count || 0); }, 0);
+        
+        html += '<div style="margin-top: 20px; padding: 15px; background: #2d4d2d; border-radius: 4px;">';
+        html += '<strong>Summary:</strong><br>';
+        html += 'Successful queries: ' + successful.length + ' / ' + queries.length + '<br>';
+        html += 'Total components found across all queries: ' + totalFound + '<br>';
+        html += '</div>';
+        
+        resultDiv.innerHTML = html;
+      }).catch(function(err) {
+        resultDiv.innerHTML = '❌ Error running tests: ' + (err.message || err);
+        console.error('❌ Error:', err);
+      });
+    }
+  </script>
+</body>
+</html>
+

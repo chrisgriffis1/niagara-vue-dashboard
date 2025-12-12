@@ -1,0 +1,140 @@
+<!-- @noSnoop -->
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Pattern 1: BQL Query</title>
+  <style>
+    body { font-family: Arial; background: #1e1e1e; color: #fff; padding: 20px; }
+    button { background: #4CAF50; color: white; border: none; padding: 10px 20px; cursor: pointer; margin: 5px; }
+    pre { background: #2d2d2d; padding: 10px; border-radius: 4px; overflow: auto; }
+  </style>
+</head>
+<body>
+  <h1>Pattern 1: BQL Query - Equipment/Point Discovery</h1>
+  <p>This example demonstrates how to execute BQL queries to discover equipment and control points in Niagara.</p>
+  
+  <h2>What This Does</h2>
+  <ul>
+    <li>Uses RequireJS to load Baja</li>
+    <li>Executes a BQL query to find control points</li>
+    <li>Processes results using table cursor</li>
+    <li>Handles timeouts and errors</li>
+  </ul>
+
+  <button onclick="testBQL()">Test BQL Query</button>
+  <pre id="result">Click button to test</pre>
+
+  <script type='text/javascript' src='/requirejs/config.js'></script>
+  <script type='text/javascript' src='/module/js/com/tridium/js/ext/require/require.min.js'></script>
+
+  <script>
+    /**
+     * Pattern 1: BQL Query - Equipment Discovery
+     * 
+     * This pattern shows how to:
+     * 1. Load Baja using RequireJS
+     * 2. Execute BQL queries
+     * 3. Process results with table cursor
+     * 4. Handle errors and timeouts
+     * 
+     * Key Points:
+     * - Must use require(["baja!", "Promise"], ...) to load Baja
+     * - BQL syntax: station:|slot:/path|bql:select ... from control:ControlPoint
+     * - Use table.cursor({ limit, each, after }) to process results
+     * - Always set timeout to prevent hanging
+     * - Use record.get('fieldName')?.toString() to get values
+     */
+    
+    window.testBQL = function() {
+      const resultDiv = document.getElementById('result');
+      resultDiv.textContent = 'Loading Baja...';
+      
+      // Use RequireJS to load Baja (required pattern)
+      if (typeof require !== 'undefined') {
+        require(["baja!", "Promise"], function (baja, Promise) {
+          runBQLTest(baja);
+        }, function(err) {
+          resultDiv.textContent = 'Error loading Baja module: ' + (err.message || err);
+          // Fallback: try global baja after delay
+          setTimeout(function() {
+            if (typeof baja !== 'undefined') {
+              runBQLTest(baja);
+            } else {
+              resultDiv.textContent = 'Error: Baja not available';
+            }
+          }, 2000);
+        });
+      } else {
+        // No RequireJS - wait for global baja
+        var attempts = 0;
+        var checkBaja = setInterval(function() {
+          attempts++;
+          if (typeof baja !== 'undefined') {
+            clearInterval(checkBaja);
+            runBQLTest(baja);
+          } else if (attempts > 20) {
+            clearInterval(checkBaja);
+            resultDiv.textContent = 'Error: Baja not available after waiting';
+          }
+        }, 500);
+      }
+    };
+    
+    function runBQLTest(baja) {
+      const resultDiv = document.getElementById('result');
+      resultDiv.textContent = 'Testing...';
+      
+      // BQL query to find control points
+      // Format: station:|slot:/path|bql:select fields from type
+      const bql = "station:|slot:/Drivers/BacnetNetwork|bql:select slotPath, displayName, name, out, status from control:ControlPoint";
+      
+      new Promise(function(resolve, reject) {
+        // Set timeout to prevent hanging (60 seconds)
+        const timeout = setTimeout(function() { 
+          reject(new Error('Query timeout after 60 seconds')); 
+        }, 60000);
+        
+        // Execute BQL query
+        baja.Ord.make(bql).get().then(function(table) {
+          clearTimeout(timeout);
+          let count = 0;
+          const samples = [];
+          
+          // Process results using cursor
+          table.cursor({
+            limit: 10, // Limit for testing
+            each: function(record) {
+              count++;
+              // Collect first 3 records as samples
+              if (samples.length < 3) {
+                samples.push({
+                  name: record.get('name')?.toString() || '',
+                  displayName: record.get('displayName')?.toString() || ''
+                });
+              }
+            },
+            after: function() {
+              // Called when all records processed
+              resolve({ count: count, samples: samples });
+            }
+          });
+        }).catch(function(err) {
+          clearTimeout(timeout);
+          reject(err);
+        });
+      }).then(function(result) {
+        // Success - display results
+        resultDiv.textContent = 'Success: ' + result.count + ' records found\n' + 
+          JSON.stringify(result.samples, null, 2);
+        console.log('✅ BQL Test:', result);
+      }).catch(function(err) {
+        // Error - display error message
+        resultDiv.textContent = 'Error: ' + (err.message || err);
+        console.error('❌ BQL Error:', err);
+      });
+    }
+  </script>
+</body>
+</html>
+

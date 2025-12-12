@@ -117,7 +117,6 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { useDeviceStore } from '../../stores/deviceStore'
 import { useAlarmStore } from '../../stores/alarmStore'
 import MiniChart from '../charts/MiniChart.vue'
-import MockDataAdapter from '../../adapters/MockDataAdapter'
 
 const props = defineProps({
   equipment: {
@@ -134,7 +133,7 @@ const emit = defineEmits(['point-clicked', 'equipment-clicked'])
 
 const deviceStore = useDeviceStore()
 const alarmStore = useAlarmStore()
-const adapter = new MockDataAdapter()
+const adapter = computed(() => deviceStore.adapter || deviceStore.getAdapter())
 const pointsExpanded = ref(false)
 const loading = ref(false)
 const points = ref([])
@@ -254,10 +253,16 @@ const loadMiniChartForPoint = async (point) => {
   
   loadingMiniChart.value = true
   try {
-    await adapter.initialize()
+    const currentAdapter = adapter.value
+    if (!currentAdapter) {
+      console.error('Adapter not available')
+      return
+    }
+    // Ensure adapter is initialized (deviceStore handles this)
+    await deviceStore.initializeAdapter()
     const now = new Date()
     const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000)
-    miniChartData.value = await adapter.getHistoricalData(point.id, { start: oneHourAgo, end: now })
+    miniChartData.value = await currentAdapter.getHistoricalData(point.id, { start: oneHourAgo, end: now })
   } catch (error) {
     console.error('Failed to load mini-chart for point:', error)
   } finally {

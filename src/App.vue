@@ -87,36 +87,132 @@ import { ref, onMounted } from 'vue'
 import MockDataAdapter from './adapters/MockDataAdapter'
 import NiagaraBQLAdapter from './adapters/NiagaraBQLAdapter'
 import BuildingView from './views/BuildingView.vue'
+import { useDeviceStore } from './stores/deviceStore'
 
 // Auto-detect Niagara environment and use appropriate adapter
-const isNiagara = typeof baja !== 'undefined' && baja && baja.Ord
-const adapter = isNiagara ? new NiagaraBQLAdapter() : new MockDataAdapter()
+// Check for window.baja (BajaScript) - also check URL scheme and RequireJS
+const checkNiagara = () => {
+  // Method 1: Direct baja check
+  if (typeof window !== 'undefined' && 
+      typeof window.baja !== 'undefined' && 
+      window.baja && 
+      window.baja.Ord) {
+    return true
+  }
+  
+  // Method 2: Check if we're accessing via ord?file: scheme (Niagara Workbench)
+  if (typeof window !== 'undefined' && window.location) {
+    const url = window.location.href || ''
+    if (url.includes('ord?file:') || url.includes('ord/file:')) {
+      console.log('🔍 Detected ord?file: scheme - assuming Niagara environment')
+      return true
+    }
+  }
+  
+  // Method 3: Check for RequireJS (BajaScript loads via RequireJS)
+  if (typeof window !== 'undefined' && 
+      (typeof window.require !== 'undefined' || typeof window.requirejs !== 'undefined')) {
+    console.log('🔍 Detected RequireJS - may be Niagara environment')
+    // Try to get baja via RequireJS
+    try {
+      if (typeof window.require !== 'undefined') {
+        // RequireJS might have baja available
+        return true // Assume Niagara if RequireJS is present
+      }
+    } catch(e) {
+      // RequireJS not ready yet
+    }
+  }
+  
+  return false
+}
 
 const stats = ref(null)
 const dataLoaded = ref(false)
 const testResults = ref([])
 const showBuildingView = ref(false)
+let adapter = null
 
 onMounted(async () => {
   try {
     console.log('🚀 App mounting, initializing adapter...')
-    console.log(`📍 Environment: ${isNiagara ? 'Niagara Station' : 'Development (Mock Data)'}`)
+    console.log('🔍 URL:', typeof window !== 'undefined' ? window.location.href : 'N/A')
     
+    // Check if we're in Niagara environment
+    let isNiagara = checkNiagara()
+    
+    // If Niagara detected but baja not available, try to load it via RequireJS
+    if (isNiagara && typeof window !== 'undefined' && 
+        (typeof window.require !== 'undefined' || typeof window.requirejs !== 'undefined') &&
+        (typeof window.baja === 'undefined' || !window.baja)) {
+      console.log('⏳ Loading BajaScript via RequireJS...')
+      
+      try {
+        // Use RequireJS to load baja module (same as LivePoints.html)
+        const requireFn = window.require || window.requirejs
+        await new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            reject(new Error('BajaScript load timeout'))
+          }, 5000)
+          
+          requireFn(["baja!", "Promise"], function(baja, Promise) {
+            clearTimeout(timeout)
+            // Make baja available globally
+            window.baja = baja
+            window.Promise = Promise || window.Promise
+            console.log('✓ BajaScript loaded via RequireJS')
+            resolve()
+          })
+        })
+      } catch (error) {
+        console.warn('⚠️ Failed to load BajaScript via RequireJS:', error)
+        // Continue anyway - might still work
+      }
+    }
+    
+    // Re-check after loading
+    if (isNiagara && typeof window !== 'undefined' && 
+        (typeof window.baja === 'undefined' || !window.baja)) {
+      // Wait a bit more for baja to become available
+      console.log('⏳ Waiting for baja to become available...')
+      for (let i = 0; i < 20; i++) {
+        await new Promise(resolve => setTimeout(resolve, 100))
+        if (typeof window.baja !== 'undefined' && window.baja && window.baja.Ord) {
+          console.log(`✓ baja detected after ${(i + 1) * 100}ms`)
+          break
+        }
+      }
+    }
+    
+    console.log(`📍 Environment: ${isNiagara ? 'Niagara Station detected' : 'Development (Mock Data)'}`)
+    console.log(`🔍 window.baja check:`, typeof window !== 'undefined' ? (typeof window.baja !== 'undefined' ? 'exists' : 'undefined') : 'window undefined')
+    console.log(`🔍 RequireJS check:`, typeof window !== 'undefined' ? (typeof window.require !== 'undefined' || typeof window.requirejs !== 'undefined' ? 'exists' : 'undefined') : 'window undefined')
+    
+    // Initialize adapter based on environment
     if (isNiagara) {
       // Running in Niagara - use BQL adapter
+      console.log('🔌 Initializing NiagaraBQLAdapter...')
+      adapter = new NiagaraBQLAdapter(window.location.origin)
       await adapter.initialize()
+      console.log('✓ Niagara BQL Adapter initialized')
     } else {
       // Development - use mock adapter with real data
+      console.log('📦 Initializing MockDataAdapter...')
+      adapter = new MockDataAdapter()
       await adapter.switchDataset('real')
+      console.log('✓ MockDataAdapter initialized with real dataset')
     }
-    console.log('✓ Dataset switched to real')
+    
+    // Set adapter in deviceStore so components can use it
+    const deviceStore = useDeviceStore()
+    deviceStore.setAdapter(adapter)
     
     // Load building stats
     stats.value = await adapter.getBuildingStats()
     console.log('✓ Building stats loaded:', stats.value)
     dataLoaded.value = true
     
-    console.log('✓ App initialized with real Niagara data')
+    console.log('✓ App initialized successfully')
   } catch (error) {
     console.error('❌ Failed to initialize:', error)
     console.error('Error stack:', error.stack)

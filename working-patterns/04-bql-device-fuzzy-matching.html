@@ -1,0 +1,1948 @@
+<!-- @noSnoop -->
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>BQL Device Discovery with Fuzzy Matching</title>
+  <style>
+    body { font-family: Arial; background: #1e1e1e; color: #fff; padding: 20px; }
+    button { background: #4CAF50; color: white; border: none; padding: 10px 20px; cursor: pointer; margin: 5px; }
+    #result { background: #2d2d2d; padding: 15px; border-radius: 4px; margin-top: 10px; font-family: monospace; min-height: 100px; max-height: 600px; overflow: auto; }
+    .device-item { margin: 10px 0; padding: 10px; background: #3d3d3d; border-radius: 4px; }
+    .device-name { font-weight: bold; color: #4CAF50; }
+    .device-type { color: #FFA726; margin-left: 10px; }
+    .device-path { color: #888; font-size: 0.9em; margin-left: 10px; }
+    .config-section { background: #2d2d2d; padding: 15px; border-radius: 4px; margin: 10px 0; }
+    .config-title { font-weight: bold; color: #4CAF50; margin-bottom: 10px; }
+    .match-rule { margin: 5px 0; padding: 5px; background: #3d3d3d; border-radius: 3px; }
+    .match-pattern { color: #FFA726; }
+    .match-type { color: #4CAF50; }
+    textarea { width: 100%; min-height: 200px; background: #333; color: #fff; border: 1px solid #555; padding: 10px; font-family: monospace; }
+    .stats { color: #888; font-size: 0.9em; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <h1>BQL Device Discovery with Fuzzy Matching</h1>
+  <p>Uses BQL to find devices, then applies configurable fuzzy matching rules to categorize them by type.</p>
+  
+  <div class="config-section">
+    <div class="config-title">Device Type Matching Rules (Easily Configurable)</div>
+    <div id="matchRules">
+      <!-- Rules will be displayed here -->
+    </div>
+    <button onclick="editRules()">Edit Matching Rules</button>
+  </div>
+  
+  <button onclick="findDevices()">Find & Categorize Devices</button>
+  <button onclick="exportJSON()" id="exportBtn" style="display:none;">Export as JSON</button>
+  <div id="result">Click button to find devices</div>
+
+  <script type='text/javascript' src='/requirejs/config.js'></script>
+  <script type='text/javascript' src='/module/js/com/tridium/js/ext/require/require.min.js'></script>
+
+  <script>
+    /**
+     * Pattern: BQL Device Discovery with Fuzzy Matching
+     * 
+     * Goal: Find devices using BQL, then categorize them by type using configurable fuzzy matching rules
+     * 
+     * Approach:
+     * 1. Use BQL to query devices: 'bql:select slotPath, displayName, name from bacnet:BacnetDevice'
+     * 2. Clean paths and resolve devices
+     * 3. Apply fuzzy matching rules to categorize device names into types
+     * 4. Output in format matching demo-site-profile.json.json structure
+     * 
+     * Performance: BQL device query only (~2.6s) - much faster than querying devices + points
+     */
+    
+    // Device Type Matching Rules - Easily configurable
+    // Each rule has: patterns (array of regex patterns or strings), type (string), priority (number, higher = checked first)
+    let deviceTypeRules = [
+      {
+        type: "Heat Pump",
+        patterns: ["^HP", "^hp", "heat.?pump", "heatpump"],
+        priority: 10,
+        caseSensitive: false
+      },
+      {
+        type: "Air Handler",
+        patterns: ["^AHU", "^ahu", "^airhandler", "air.?handler"],
+        priority: 10,
+        caseSensitive: false
+      },
+      {
+        type: "Makeup Air Unit",
+        patterns: ["^MAU", "^mau", "makeup.?air"],
+        priority: 10,
+        caseSensitive: false
+      },
+      {
+        type: "Cooling Tower",
+        patterns: ["TowerPlant", "tower.?plant", "cooling.?tower"],
+        priority: 10,
+        caseSensitive: false
+      },
+      {
+        type: "Exhaust Fan",
+        patterns: ["^ExFan", "^ExhFan", "^ExhaustFan", "^exfan", "^exhfan", "^exhaustfan", "exhaust.?fan"],
+        priority: 10,
+        caseSensitive: false
+      },
+      {
+        type: "RTU",
+        patterns: ["^RTU", "^rtu", "rooftop"],
+        priority: 9,
+        caseSensitive: false
+      },
+      {
+        type: "VAV",
+        patterns: ["^VAV", "^vav", "variable.?air.?volume"],
+        priority: 10,
+        caseSensitive: false
+      },
+      {
+        type: "Chiller",
+        patterns: ["^Chiller", "^chiller"],
+        priority: 10,
+        caseSensitive: false
+      },
+      {
+        type: "Boiler",
+        patterns: ["^Boiler", "^boiler"],
+        priority: 10,
+        caseSensitive: false
+      },
+      {
+        type: "Pump",
+        patterns: ["^Pump", "^pump"],
+        priority: 10,
+        caseSensitive: false
+      },
+      {
+        type: "Fan",
+        patterns: ["Fan$", "fan$"],
+        priority: 5, // Lower priority - catch-all for fans
+        caseSensitive: false
+      }
+    ];
+    
+    // Point-to-device patterns - points that should be treated as devices
+    // Each entry defines: BQL query pattern, category name, and optional displayName patterns
+    const pointToDeviceRules = {
+      "Exhaust Fan": {
+        bqlPattern: "*ExhFan*|*ExFan*|*ExhaustFan*",
+        displayNamePatterns: [
+          { pattern: "ExhFan", flags: "i" },
+          { pattern: "ExFan", flags: "i" },
+          { pattern: "ExhaustFan", flags: "i" }
+        ]
+      },
+      "Water Temperature Sensor": {
+        bqlPattern: "*H20*|*Water*",
+        displayNamePatterns: [
+          { pattern: "H20", flags: "i" },
+          { pattern: "Water.*Temp", flags: "i" },
+          { pattern: ".*Water.*Temp", flags: "i" },
+          { pattern: "DHW", flags: "i" },
+          { pattern: "DCW", flags: "i" },
+          { pattern: "Hot Water", flags: "i" },
+          { pattern: "Cold Water", flags: "i" },
+          { pattern: "Supply.*Water", flags: "i" },
+          { pattern: "Return.*Water", flags: "i" },
+          { pattern: "Dom.*Water", flags: "i" }
+        ],
+        excludePatterns: [
+          { pattern: "Setpoint", flags: "i" },
+          { pattern: "SetPoint", flags: "i" },
+          { pattern: "_SP$", flags: "i" }
+        ]
+      },
+      "Pressure Sensor": {
+        bqlPattern: "*Psi*|*PSI*",
+        displayNamePatterns: [
+          { pattern: "PSI", flags: "i" },
+          { pattern: "Psi", flags: "i" },
+          // Exclude "Pressure" alone - too generic, only match PSI/Psi
+        ]
+      },
+      "Freezer": {
+        bqlPattern: "*Freezer*",
+        displayNamePatterns: [
+          { pattern: "Freezer", flags: "i" }
+        ]
+      },
+      "Fridge": {
+        bqlPattern: "*Fridge*",
+        displayNamePatterns: [
+          { pattern: "Fridge", flags: "i" }
+        ]
+      },
+      "Heater": {
+        bqlPattern: "*Heater*",
+        displayNamePatterns: [
+          { pattern: "Heater", flags: "i" }
+        ]
+      },
+      "Heat Trace": {
+        bqlPattern: "*HeatTrace*|*Heat.*Trace*",
+        displayNamePatterns: [
+          { pattern: "Heat Trace", flags: "i" },
+          { pattern: "HeatTrace", flags: "i" }
+        ]
+      },
+    };
+    
+    let lastResults = null;
+    
+    // Sort rules by priority (higher first)
+    function sortRules() {
+      deviceTypeRules.sort(function(a, b) {
+        return (b.priority || 0) - (a.priority || 0);
+      });
+    }
+    
+    // Display current rules
+    function displayRules() {
+      const rulesDiv = document.getElementById('matchRules');
+      sortRules();
+      let html = '';
+      deviceTypeRules.forEach(function(rule, index) {
+        html += '<div class="match-rule">';
+        html += '<span class="match-type">' + rule.type + '</span>: ';
+        html += '<span class="match-pattern">' + rule.patterns.join(', ') + '</span>';
+        html += ' (Priority: ' + rule.priority + ')';
+        html += '</div>';
+      });
+      rulesDiv.innerHTML = html || '<div style="color:#888;">No rules configured</div>';
+    }
+    
+    // Edit rules (simple JSON editor)
+    function editRules() {
+      const currentRules = JSON.stringify(deviceTypeRules, null, 2);
+      const newRules = prompt('Edit matching rules (JSON format):\n\n' + currentRules, currentRules);
+      if (newRules) {
+        try {
+          const parsed = JSON.parse(newRules);
+          if (Array.isArray(parsed)) {
+            deviceTypeRules = parsed;
+            displayRules();
+            alert('Rules updated successfully!');
+          } else {
+            alert('Error: Rules must be an array');
+          }
+        } catch(e) {
+          alert('Error parsing JSON: ' + e.message);
+        }
+      }
+    }
+    
+    // Match device name to type using fuzzy matching rules
+    function matchDeviceType(deviceName) {
+      if (!deviceName) return "Unknown";
+      
+      const name = deviceName.toString().trim();
+      
+      // Check rules in priority order
+      for (let i = 0; i < deviceTypeRules.length; i++) {
+        const rule = deviceTypeRules[i];
+        const patterns = rule.patterns || [];
+        
+        for (let j = 0; j < patterns.length; j++) {
+          const pattern = patterns[j];
+          let regex;
+          
+          // Convert string pattern to regex if needed
+          if (typeof pattern === 'string') {
+            // If it's already a regex string (starts/ends with /), use it directly
+            if (pattern.startsWith('/') && pattern.endsWith('/')) {
+              const flags = rule.caseSensitive ? 'g' : 'gi';
+              regex = new RegExp(pattern.slice(1, -1), flags);
+            } else {
+              // Check if pattern starts with ^ or ends with $ (regex anchors)
+              const startsWithAnchor = pattern.startsWith('^');
+              const endsWithAnchor = pattern.endsWith('$');
+              
+              // Remove anchors temporarily for escaping
+              let patternToEscape = pattern;
+              if (startsWithAnchor) patternToEscape = patternToEscape.substring(1);
+              if (endsWithAnchor) patternToEscape = patternToEscape.substring(0, patternToEscape.length - 1);
+              
+              // Escape special chars (but preserve anchors)
+              const escaped = patternToEscape.replace(/[.*+?${}()|[\]\\]/g, '\\$&');
+              
+              // Re-add anchors
+              let finalPattern = escaped;
+              if (startsWithAnchor) finalPattern = '^' + finalPattern;
+              if (endsWithAnchor) finalPattern = finalPattern + '$';
+              
+              const flags = rule.caseSensitive ? '' : 'i';
+              regex = new RegExp(finalPattern, flags);
+            }
+          } else if (pattern instanceof RegExp) {
+            regex = pattern;
+          } else {
+            continue;
+          }
+          
+          if (regex.test(name)) {
+            return rule.type;
+          }
+        }
+      }
+      
+      return "Unknown";
+    }
+    
+    // Check if component is a BacnetPointDeviceExt or BacnetPointFolder
+    function isPointFolder(component) {
+      if (!component || !component.getType) {
+        return false;
+      }
+      try {
+        const type = component.getType();
+        if (!type || !type.getName) {
+          return false;
+        }
+        const typeName = type.getName();
+        return typeName === 'bacnet:BacnetPointDeviceExt' || 
+               typeName === 'bacnet:BacnetPointFolder';
+      } catch(e) {
+        return false;
+      }
+    }
+    
+    // Check if component is a BacnetDeviceFolder (organizational folder like Zone1, Floor1, etc.)
+    function isDeviceFolder(component) {
+      if (!component || !component.getType) {
+        return false;
+      }
+      try {
+        const type = component.getType();
+        if (!type || !type.getName) {
+          return false;
+        }
+        const typeName = type.getName();
+        return typeName === 'bacnet:BacnetDeviceFolder';
+      } catch(e) {
+        return false;
+      }
+    }
+    
+    // Find ALL points that should be treated as devices AND Location points using a single BQL query
+    // Returns: { pointDevices: { categoryName: [points...] }, locationPoints: [points...] }
+    function findAllPointDevicesAndLocations(baja, resultDiv) {
+      const allPointDevices = {}; // Map: categoryName -> array of points
+      const allLocationPoints = [];
+      
+      // Build combined BQL query - single query for all point devices and locations
+      const allPatterns = [];
+      
+      // Add patterns from all point device categories
+      Object.keys(pointToDeviceRules).forEach(function(categoryName) {
+        const rule = pointToDeviceRules[categoryName];
+        const bqlPatterns = rule.bqlPattern.split('|');
+        bqlPatterns.forEach(function(pattern) {
+          const cleanPattern = pattern.replace(/\*/g, '');
+          if (cleanPattern && !allPatterns.includes(cleanPattern)) {
+            allPatterns.push(cleanPattern);
+          }
+        });
+      });
+      
+      // Add location pattern
+      allPatterns.push('ocation');
+      
+      // Build single WHERE clause
+      const whereClause = allPatterns.map(function(pattern) {
+        return "displayName like '*" + pattern + "*'";
+      }).join(' or ');
+      
+      // Single combined query - scoped to BacnetNetwork, using control:ControlPoint
+      const combinedBql = "station:|slot:/Drivers/BacnetNetwork|bql:select slotPath as 'slotPath\\',toString as 'toString\\',displayName as 'displayName\\',absoluteOrd as 'absoluteOrd' from control:ControlPoint where " + whereClause;
+      
+      if (resultDiv) {
+        resultDiv.innerHTML = '✅ Found devices<br>' +
+          '🔧 Querying ALL point devices and Location points using single combined BQL query...';
+      }
+      
+      const startTime = Date.now();
+      
+      return baja.Ord.make(combinedBql).get().then(function(table) {
+        const queryTime = Date.now() - startTime;
+        
+        if (!table) {
+          if (resultDiv) {
+            console.log('⏱️ Combined BQL Query Time:', queryTime + 'ms');
+            console.log('✅ Found 0 point devices and 0 Location points');
+          }
+          return { pointDevices: {}, locationPoints: [] };
+        }
+        
+        // Initialize category arrays
+        Object.keys(pointToDeviceRules).forEach(function(categoryName) {
+          allPointDevices[categoryName] = [];
+        });
+        
+        return new Promise(function(resolve) {
+          table.cursor({
+            limit: 10000,
+            each: function(record) {
+              try {
+                const slotPath = record.get('slotPath')?.toString() || '';
+                const displayName = record.get('displayName')?.toString() || '';
+                const toString = record.get('toString')?.toString() || '';
+                
+                if (!slotPath || !displayName) {
+                  return;
+                }
+                
+                const cleanPath = slotPath.replace(/^slot:/, '').trim();
+                const pointName = cleanPath.split('/').pop();
+                
+                // Check if it's a Location point
+                if (/ocation/i.test(displayName)) {
+                  // Extract location value from toString (e.g., "Kitchen {ok} @def" -> "Kitchen")
+                  let locationValue = toString.split('{')[0].trim();
+                  if (!locationValue) {
+                    locationValue = toString.split('[')[0].trim(); // Handle [ok] format too
+                  }
+                  
+                  allLocationPoints.push({
+                    path: cleanPath,
+                    value: locationValue || "Unknown"
+                  });
+                  return; // Don't process as point device
+                }
+                
+                // Check which category this point device belongs to
+                let matchedCategory = null;
+                Object.keys(pointToDeviceRules).forEach(function(categoryName) {
+                  if (matchedCategory) return; // Already matched
+                  
+                  const rule = pointToDeviceRules[categoryName];
+                  
+                  // First check exclude patterns (e.g., exclude setpoints from water sensors)
+                  if (rule.excludePatterns) {
+                    const excluded = rule.excludePatterns.some(function(patternInfo) {
+                      try {
+                        const regex = new RegExp(patternInfo.pattern, patternInfo.flags || 'i');
+                        return regex.test(displayName) || regex.test(pointName);
+                      } catch(e) {
+                        return false;
+                      }
+                    });
+                    if (excluded) {
+                      return; // Skip this category
+                    }
+                  }
+                  
+                  const matchesCategory = rule.displayNamePatterns.some(function(patternInfo) {
+                    try {
+                      const regex = new RegExp(patternInfo.pattern, patternInfo.flags || 'i');
+                      return regex.test(displayName) || regex.test(pointName);
+                    } catch(e) {
+                      return false;
+                    }
+                  });
+                  
+                  if (matchesCategory) {
+                    matchedCategory = categoryName;
+                  }
+                });
+                
+                if (matchedCategory) {
+                  allPointDevices[matchedCategory].push({
+                    name: displayName || pointName,
+                    displayName: displayName,
+                    pointName: pointName,
+                    path: cleanPath,
+                    ord: 'station:|slot:' + cleanPath,
+                    category: matchedCategory
+                  });
+                }
+              } catch(e) {
+                // Ignore errors
+              }
+            },
+            after: function() {
+              const totalTime = Date.now() - startTime;
+              const totalPointDevices = Object.values(allPointDevices).reduce(function(sum, points) {
+                return sum + points.length;
+              }, 0);
+              
+              if (resultDiv) {
+                console.log('⏱️ Combined BQL Query Time:', queryTime + 'ms (Total:', totalTime + 'ms)');
+                console.log('✅ Found', totalPointDevices, 'total point device(s) and', allLocationPoints.length, 'Location points:');
+                Object.keys(allPointDevices).forEach(function(category) {
+                  if (allPointDevices[category].length > 0) {
+                    console.log('  -', category + ':', allPointDevices[category].length);
+                  }
+                });
+              }
+              
+              resolve({
+                pointDevices: allPointDevices,
+                locationPoints: allLocationPoints
+              });
+            }
+          });
+        });
+      }).catch(function(err) {
+        console.warn('Error querying combined point devices and locations:', err);
+        return { pointDevices: {}, locationPoints: [] };
+      });
+    }
+    
+    // Legacy wrapper for backward compatibility
+    function findAllPointDevices(baja, resultDiv) {
+      return findAllPointDevicesAndLocations(baja, resultDiv).then(function(results) {
+        return results.pointDevices;
+      });
+    }
+    
+    // Legacy function name for backward compatibility
+    function findAllExhFanPoints(baja, resultDiv) {
+      return findAllPointDevices(baja, resultDiv).then(function(allPointDevices) {
+        return allPointDevices["Exhaust Fan"] || [];
+      });
+    }
+    
+    // Find ALL control points (for points array in demo-site-profile.json.json format)
+    // Returns array of points with: id, name, type, unit, value, ord
+    function findAllPoints(baja, resultDiv) {
+      // Query all control points scoped to BacnetNetwork
+      const pointsBql = "station:|slot:/Drivers/BacnetNetwork|bql:select slotPath as 'slotPath\\',displayName as 'displayName\\',toString as 'toString\\',absoluteOrd as 'absoluteOrd' from control:ControlPoint";
+      
+      if (resultDiv) {
+        const currentHtml = resultDiv.innerHTML;
+        resultDiv.innerHTML = currentHtml + '<br>🔧 Collecting all control points...';
+      }
+      
+      const startTime = Date.now();
+      const allPoints = [];
+      let pointIndex = 1;
+      
+      return baja.Ord.make(pointsBql).get().then(function(table) {
+        if (!table) {
+          return [];
+        }
+        
+        return new Promise(function(resolve) {
+          table.cursor({
+            limit: 10000,
+            each: function(record) {
+              try {
+                const slotPath = record.get('slotPath')?.toString() || '';
+                const displayName = record.get('displayName')?.toString() || '';
+                const toString = record.get('toString')?.toString() || '';
+                
+                if (!slotPath || !displayName) {
+                  return;
+                }
+                
+                const cleanPath = slotPath.replace(/^slot:/, '').trim();
+                
+                // Extract value and unit from toString (e.g., "72.5 °F {ok}" -> value: 72.5, unit: "°F")
+                let value = null;
+                let unit = "";
+                let pointType = "Unknown";
+                
+                // Parse toString to extract value and unit
+                // Format examples: "72.5 °F {ok}", "60 PSI {ok}", "On {ok}", "72.5 {ok}"
+                const toStringMatch = toString.match(/^([\d.]+)\s*([^\s{]*)\s*\{/);
+                if (toStringMatch) {
+                  value = parseFloat(toStringMatch[1]);
+                  unit = toStringMatch[2].trim() || "";
+                } else {
+                  // Try to extract just numeric value
+                  const numMatch = toString.match(/^([\d.]+)/);
+                  if (numMatch) {
+                    value = parseFloat(numMatch[1]);
+                  }
+                }
+                
+                // Determine point type from displayName only (customer-facing name)
+                const nameLower = (displayName || '').toLowerCase();
+                
+                if (nameLower.includes('temp') || nameLower.includes('temperature')) {
+                  pointType = "Temperature";
+                  if (!unit && value !== null) unit = "°F"; // Default for temperature
+                } else if (nameLower.includes('pressure') || nameLower.includes('psi')) {
+                  pointType = "Pressure";
+                  if (!unit && value !== null) unit = "PSI"; // Default for pressure
+                } else if (nameLower.includes('flow')) {
+                  pointType = "Flow";
+                  if (!unit && value !== null) unit = "CFM"; // Default for flow
+                } else if (nameLower.includes('status')) {
+                  pointType = "Status";
+                } else if (nameLower.includes('command') || nameLower.includes('cmd')) {
+                  pointType = "Command";
+                } else if (nameLower.includes('setpoint') || nameLower.includes('sp')) {
+                  pointType = "Setpoint";
+                  if (!unit && value !== null) unit = "°F"; // Default for setpoint
+                } else {
+                  // Try to infer from unit
+                  if (unit.includes('°F') || unit.includes('°C')) {
+                    pointType = "Temperature";
+                  } else if (unit.includes('PSI') || unit.includes('psi')) {
+                    pointType = "Pressure";
+                  } else if (unit.includes('CFM') || unit.includes('cfm')) {
+                    pointType = "Flow";
+                  }
+                }
+                
+                // Only use displayName for customer-facing name (ORD path is in ord field)
+                allPoints.push({
+                  id: "point_" + pointIndex,
+                  name: displayName, // Always use displayName (customer-friendly)
+                  type: pointType,
+                  unit: unit,
+                  value: value,
+                  ord: cleanPath // Technical path stored here, not shown to customer
+                });
+                
+                pointIndex++;
+              } catch(e) {
+                // Ignore errors
+              }
+            },
+            after: function() {
+              const totalTime = Date.now() - startTime;
+              if (resultDiv) {
+                console.log('⏱️ All Points Collection Time:', totalTime + 'ms');
+                console.log('✅ Collected', allPoints.length, 'total control point(s)');
+              }
+              resolve(allPoints);
+            }
+          });
+        });
+      }).catch(function(err) {
+        console.warn('Error querying all points:', err);
+        return [];
+      });
+    }
+    
+    // Find ALL history configs and extract their IDs
+    // Returns array of { id, slotPath, pointPath } where pointPath is the normalized path to match against points
+    function findAllHistoryConfigs(baja, resultDiv) {
+      // Query all history configs using the provided BQL query
+      const historyBql = "station:|slot:/|bql:select toString as 'To String\\',id as 'id\\',slotPath as 'slotPath' from history:HistoryConfig";
+      
+      if (resultDiv) {
+        const currentHtml = resultDiv.innerHTML;
+        resultDiv.innerHTML = currentHtml + '<br>🔧 Collecting all history configs...';
+      }
+      
+      const startTime = Date.now();
+      const allHistoryConfigs = [];
+      
+      return baja.Ord.make(historyBql).get().then(function(table) {
+        if (!table) {
+          return [];
+        }
+        
+        return new Promise(function(resolve) {
+          table.cursor({
+            limit: 10000,
+            each: function(record) {
+              try {
+                const slotPath = record.get('slotPath')?.toString() || '';
+                const historyId = record.get('id')?.toString() || '';
+                
+                if (!slotPath || !historyId) {
+                  return;
+                }
+                
+                // Extract point path from history config slotPath
+                // Pattern: slot:/Drivers/BacnetNetwork/[Device]/points/Monitor/ViewSet/[Category]/[PointName]/[NumericCov|EnumCov|BooleanCov]/historyConfig
+                // We want: /Drivers/BacnetNetwork/[Device]/points/Monitor/ViewSet/[Category]/[PointName]
+                let pointPath = slotPath.replace(/^slot:/, '').trim();
+                
+                // Remove coverage type and historyConfig suffix
+                pointPath = pointPath.replace(/\/historyConfig$/, '');
+                pointPath = pointPath.replace(/\/(NumericCov|EnumCov|BooleanCov)$/, '');
+                
+                allHistoryConfigs.push({
+                  id: historyId,
+                  slotPath: slotPath,
+                  pointPath: pointPath // Normalized path to match against point ords
+                });
+              } catch(e) {
+                // Ignore errors
+              }
+            },
+            after: function() {
+              const totalTime = Date.now() - startTime;
+              if (resultDiv) {
+                console.log('⏱️ History Config Collection Time:', totalTime + 'ms');
+                console.log('✅ Collected', allHistoryConfigs.length, 'total history config(s)');
+              }
+              resolve(allHistoryConfigs);
+            }
+          });
+        });
+      }).catch(function(err) {
+        console.warn('Error querying history configs:', err);
+        return [];
+      });
+    }
+    
+    // Match history configs to points by comparing paths
+    function matchHistoryConfigsToPoints(points, historyConfigs) {
+      if (!points || !historyConfigs || points.length === 0 || historyConfigs.length === 0) {
+        return;
+      }
+      
+      // Create a map of normalized point paths to history configs for faster lookup
+      const historyMap = {};
+      historyConfigs.forEach(function(histConfig) {
+        const normalizedPath = histConfig.pointPath.toLowerCase().replace(/\/$/, '');
+        if (!historyMap[normalizedPath]) {
+          historyMap[normalizedPath] = [];
+        }
+        historyMap[normalizedPath].push(histConfig);
+      });
+      
+      // Match each point to its history config
+      points.forEach(function(point) {
+        if (!point.ord) return;
+        
+        // Normalize point ord path for comparison
+        let normalizedPointPath = point.ord.toLowerCase().replace(/\/$/, '');
+        
+        // Try exact match first
+        if (historyMap[normalizedPointPath]) {
+          // Use the first matching history config
+          point.historyId = historyMap[normalizedPointPath][0].id;
+          return;
+        }
+        
+        // Try matching by point name (last segment of path)
+        // Point ord might be: /Drivers/BacnetNetwork/Device/points/Monitor/PointName
+        // History path might be: /Drivers/BacnetNetwork/Device/points/Monitor/ViewSet/Category/PointName
+        const pointName = normalizedPointPath.split('/').pop();
+        
+        Object.keys(historyMap).forEach(function(histPath) {
+          const histPointName = histPath.split('/').pop();
+          
+          // Match by point name and check if paths are related
+          if (pointName === histPointName && histPointName) {
+            // Check if the point path is contained in the history path or vice versa
+            if (histPath.includes(normalizedPointPath) || normalizedPointPath.includes(histPath)) {
+              point.historyId = historyMap[histPath][0].id;
+            }
+          }
+        });
+      });
+    }
+    
+    // Find ALL boolean schedules (excluding BACnet device schedules)
+    // Returns array of schedules with: id, name, type, active
+    function findAllBooleanSchedules(baja, resultDiv) {
+      // Query boolean schedules - scoped to station root to avoid device-specific schedules
+      const scheduleBql = "station:|slot:/|bql:select slotPath as 'slotPath\\',displayName as 'displayName\\',toString as 'toString' from booleanSchedule:BooleanSchedule";
+      
+      if (resultDiv) {
+        const currentHtml = resultDiv.innerHTML;
+        resultDiv.innerHTML = currentHtml + '<br>🔧 Collecting boolean schedules...';
+      }
+      
+      const startTime = Date.now();
+      const allSchedules = [];
+      let scheduleIndex = 1;
+      
+      return baja.Ord.make(scheduleBql).get().then(function(table) {
+        if (!table) {
+          return [];
+        }
+        
+        return new Promise(function(resolve) {
+          table.cursor({
+            limit: 1000, // Reasonable limit for schedules
+            each: function(record) {
+              try {
+                const slotPath = record.get('slotPath')?.toString() || '';
+                const displayName = record.get('displayName')?.toString() || '';
+                const toString = record.get('toString')?.toString() || '';
+                
+                if (!slotPath || !displayName) {
+                  return;
+                }
+                
+                // Skip schedules that are part of BACnet devices (they're usually under /Drivers/BacnetNetwork)
+                if (slotPath.toLowerCase().includes('/drivers/bacnetnetwork/')) {
+                  return; // Skip device schedules
+                }
+                
+                // Parse active status from toString (e.g., "On {ok}" or "Off {ok}")
+                let active = false;
+                if (toString) {
+                  const activeMatch = toString.match(/\b(On|True|1|Active)\b/i);
+                  active = !!activeMatch;
+                }
+                
+                allSchedules.push({
+                  id: "schedule_" + scheduleIndex,
+                  name: displayName, // Always use displayName (customer-friendly)
+                  type: "Weekly", // BooleanSchedule is typically weekly
+                  active: active
+                });
+                
+                scheduleIndex++;
+              } catch(e) {
+                // Ignore errors
+              }
+            },
+            after: function() {
+              const totalTime = Date.now() - startTime;
+              if (resultDiv) {
+                console.log('⏱️ Boolean Schedule Collection Time:', totalTime + 'ms');
+                console.log('✅ Collected', allSchedules.length, 'total boolean schedule(s)');
+              }
+              resolve(allSchedules);
+            }
+          });
+        });
+      }).catch(function(err) {
+        console.warn('Error querying boolean schedules:', err);
+        return [];
+      });
+    }
+    
+    // Extract unique histories from history configs
+    // Returns array of histories with: id, name, interval, retention
+    // Limited to unique entries to prevent huge file size
+    function extractHistoriesFromConfigs(historyConfigs) {
+      if (!historyConfigs || historyConfigs.length === 0) {
+        return [];
+      }
+      
+      const historyMap = {}; // Map by historyId to avoid duplicates
+      let historyIndex = 1;
+      
+      historyConfigs.forEach(function(histConfig) {
+        // Skip if we already have this history ID
+        if (historyMap[histConfig.id]) {
+          return;
+        }
+        
+        // Parse interval and retention from toString if available
+        // Format: "Interval: irregular, Record Type: numeric trend record, Capacity: 500 records, Full Policy: Roll"
+        let interval = "irregular";
+        let retention = "unknown";
+        
+        // Try to extract interval (could be "irregular", "15min", "1h", etc.)
+        // For now, we'll use "irregular" as default since most are irregular
+        // If we had access to the actual interval property, we'd use that
+        
+        // Extract retention from capacity (e.g., "500 records" -> estimate retention)
+        // This is approximate - actual retention depends on interval and capacity
+        // For now, we'll use a simple mapping or leave as "unknown"
+        
+        // Extract name from historyId (e.g., "/MJHOptimizer1/AHU1$20ControlTemp" -> "AHU1 ControlTemp")
+        let historyName = histConfig.id.split('/').pop() || histConfig.id;
+        // Replace $20 with space (Niagara encoding)
+        historyName = historyName.replace(/\$20/g, ' ');
+        
+        historyMap[histConfig.id] = {
+          id: "history_" + historyIndex,
+          name: historyName,
+          interval: interval,
+          retention: retention
+        };
+        
+        historyIndex++;
+      });
+      
+      // Convert map to array
+      return Object.keys(historyMap).map(function(key) {
+        return historyMap[key];
+      });
+    }
+    
+    // Match ExhFan points to a specific device
+    function matchExhFanPointsToDevice(exhFanPoints, devicePath) {
+      const devicePathLower = devicePath.toLowerCase();
+      return exhFanPoints.filter(function(point) {
+        return point.path.toLowerCase().includes(devicePathLower);
+      });
+    }
+    
+    // OLD TRAVERSAL METHOD - KEPT FOR REFERENCE BUT NOT USED
+    function findExhFanPoints_OLD_TRAVERSAL(baja, deviceComponent, devicePath, maxDepth, resultDiv, deviceIndex, totalDevices) {
+      const exhFanPoints = [];
+      const checkedPaths = new Set();
+      const systemFolders = ['Alarms', 'status', 'enabled', 'faultCause', 
+        'health', 'alarmSourceInfo', 'address', 'config', 'enumerationList'];
+      
+      // Limit max depth to 3 levels inside point folders
+      const actualMaxDepth = Math.min(maxDepth, 3);
+      let foundPointFolder = false;
+      let searchStarted = false;
+      
+      function traverseFolder(folder, currentPath, depth, insidePointFolder) {
+        if (!searchStarted && resultDiv) {
+          searchStarted = true;
+          resultDiv.innerHTML = '✅ Found ' + totalDevices + ' device(s)<br>' +
+            '🔧 Step 2: Searching for ExhFan points in device ' + deviceIndex + '/' + totalDevices + ' (' + devicePath.split('/').pop() + ')...';
+        }
+        if (depth > actualMaxDepth && insidePointFolder) {
+          return Promise.resolve();
+        }
+        
+        return new Promise(function(resolve) {
+          try {
+            const slots = folder.getSlots();
+            if (!slots) {
+              resolve();
+              return;
+            }
+            
+            const promises = [];
+            slots.each(function(slot) {
+              try {
+                const slotName = slot.getName ? slot.getName() : slot.toString();
+                if (!slotName) {
+                  return;
+                }
+                
+                // Skip known property names (not folders) - these are device properties, not child components
+                const propertyNames = ['in1', 'in2', 'in3', 'in4', 'in5', 'in6', 'in7', 'in8', 'in9', 'in10',
+                  'in11', 'in12', 'in13', 'in14', 'in15', 'in16', 'out', 'facets', 'value', 'ord', 'wsAnnotation',
+                  'fallback', 'overrideExpiration', 'AhuOrd', 'AlarmActive1', 'status', 'enabled', 'faultCause',
+                  'health', 'alarmSourceInfo', 'address', 'config', 'enumerationList'];
+                
+                if (propertyNames.some(function(prop) { return prop.toLowerCase() === slotName.toLowerCase(); })) {
+                  return; // Skip properties - not folders
+                }
+                
+                // Clean path - ensure no duplicate slashes or slot: prefixes
+                let childPath = currentPath;
+                if (!childPath.endsWith('/')) {
+                  childPath += '/';
+                }
+                childPath += slotName;
+                childPath = childPath.replace(/\/+/g, '/'); // Remove duplicate slashes
+                
+                // Skip if already checked
+                if (checkedPaths.has(childPath)) {
+                  return;
+                }
+                
+                // Skip system folders
+                if (systemFolders.some(function(sys) { return sys.toLowerCase() === slotName.toLowerCase(); })) {
+                  return;
+                }
+                
+                checkedPaths.add(childPath);
+                
+                // Clean ORD - ensure no duplicate slot: prefix
+                let cleanPath = childPath.replace(/^slot:/, '').trim();
+                if (!cleanPath.startsWith('/')) {
+                  cleanPath = '/' + cleanPath;
+                }
+                const childOrd = 'station:|slot:' + cleanPath;
+                
+                // Resolve component to check its type
+                const promise = baja.Ord.make(childOrd).get().then(function(childComponent) {
+                  if (!childComponent) {
+                    return;
+                  }
+                  
+                  // CRITICAL: Only traverse into components that have getSlots() (are folders)
+                  // Skip properties and simple components that aren't folders
+                  if (!childComponent.getSlots) {
+                    return; // Not a folder, skip
+                  }
+                  if (!childComponent) {
+                    return;
+                  }
+                  
+                  // Check if this is a point folder
+                  const isPointFolderType = isPointFolder(childComponent);
+                  
+                  // Debug logging
+                  if (resultDiv && deviceIndex <= 3) { // Only log first 3 devices to avoid spam
+                    const typeName = childComponent.getType ? (childComponent.getType().getName ? childComponent.getType().getName() : 'unknown') : 'no-type';
+                    console.log('🔍 ExhFan Search - Device ' + deviceIndex + ': Checking', slotName, 'Type:', typeName, 'isPointFolder:', isPointFolderType, 'insidePointFolder:', insidePointFolder);
+                  }
+                  
+                  // If we found a point folder, mark it and start counting depth from here
+                  if (isPointFolderType && !insidePointFolder) {
+                    foundPointFolder = true;
+                    if (resultDiv && deviceIndex <= 3) {
+                      console.log('✅ ExhFan Search - Device ' + deviceIndex + ': Found point folder:', slotName, 'at', cleanPath);
+                    }
+                    // Traverse into point folder (depth resets to 0 for point folder traversal)
+                    if (childComponent.getSlots) {
+                      return traverseFolder(childComponent, cleanPath, 0, true);
+                    }
+                  } else if (insidePointFolder) {
+                    // We're inside a point folder - check for ExhFan points
+                    if (/^ExhFan|^ExFan|^ExhaustFan/i.test(slotName)) {
+                      if (resultDiv) {
+                        console.log('✅ ExhFan Search - Device ' + deviceIndex + ': Found ExhFan point:', slotName, 'at', cleanPath);
+                      }
+                      exhFanPoints.push({
+                        name: slotName,
+                        path: cleanPath,
+                        ord: childOrd
+                      });
+                      // Don't traverse into ExhFan points themselves
+                      return;
+                    }
+                    
+                    // Continue traversal inside point folder (up to maxDepth)
+                    if (depth < actualMaxDepth && childComponent.getSlots) {
+                      return traverseFolder(childComponent, cleanPath, depth + 1, true);
+                    }
+                  } else {
+                    // Not in point folder yet - continue searching for point folders
+                    // Skip BacnetDeviceFolder (organizational folders like Zone1, Floor1) - they don't contain points
+                    const isDeviceFolderType = isDeviceFolder(childComponent);
+                    if (!isDeviceFolderType && childComponent.getSlots && depth < 10) {
+                      return traverseFolder(childComponent, cleanPath, depth + 1, false);
+                    }
+                  }
+                }).catch(function(err) {
+                  // Ignore errors - component might not exist or might not be a folder
+                });
+                promises.push(promise);
+              } catch(e) {
+                // Ignore individual slot errors
+              }
+            });
+            
+            Promise.all(promises).then(function() {
+              resolve();
+            }).catch(function() {
+              resolve(); // Continue even if some fail
+            });
+          } catch(e) {
+            // Ignore folder errors
+            resolve();
+          }
+        });
+      }
+      
+      return traverseFolder(deviceComponent, devicePath, 0, false).then(function() {
+        return exhFanPoints;
+      });
+    }
+    
+    // Find ALL Location points using BQL query (run once, then match to devices)
+    function findAllLocationPoints(baja, resultDiv) {
+      // Use BQL to find ALL Location points - search for components with displayName containing "ocation"
+      // Scope to BacnetNetwork and use control:ControlPoint for performance
+      const locationBql = "station:|slot:/Drivers/BacnetNetwork|bql:select slotPath as 'slotPath\\',toString as 'toString' from control:ControlPoint where displayName like '*ocation*'";
+      
+      return new Promise(function(resolve) {
+        if (resultDiv) {
+          resultDiv.innerHTML = '✅ Found devices<br>' +
+            '🔧 Querying ALL Location points using BQL...';
+        }
+        
+        const startTime = Date.now();
+        baja.Ord.make(locationBql).get().then(function(table) {
+          const queryTime = Date.now() - startTime;
+          if (resultDiv) {
+            console.log('⏱️ Location BQL Query Time:', queryTime + 'ms');
+          }
+          
+          if (!table) {
+            resolve([]);
+            return;
+          }
+          
+          const allLocationPoints = [];
+          
+          table.cursor({
+            limit: 10000,
+            each: function(record) {
+              try {
+                const slotPath = record.get('slotPath')?.toString() || '';
+                const toString = record.get('toString')?.toString() || '';
+                
+                if (slotPath) {
+                  const cleanPath = slotPath.replace(/^slot:/, '').trim();
+                  // Extract location value from toString (e.g., "Kitchen {ok} @def" -> "Kitchen")
+                  let locationValue = toString.split('{')[0].trim();
+                  if (!locationValue) {
+                    locationValue = toString.split('[')[0].trim(); // Handle [ok] format too
+                  }
+                  
+                  allLocationPoints.push({
+                    path: cleanPath,
+                    value: locationValue || "Unknown"
+                  });
+                }
+              } catch(e) {
+                // Ignore errors
+              }
+            },
+            after: function() {
+              const totalTime = Date.now() - startTime;
+              if (resultDiv) {
+                console.log('✅ Found', allLocationPoints.length, 'total Location point(s) via BQL (Total:', totalTime + 'ms)');
+              }
+              resolve(allLocationPoints);
+            }
+          });
+        }).catch(function(err) {
+          console.warn('Error querying Location points:', err);
+          resolve([]);
+        });
+      });
+    }
+    
+    // Match Location point to a specific device or point path
+    // Location points are usually siblings in the same folder (e.g., parent.Location)
+    function matchLocationPointToDevice(locationPoints, deviceOrPointPath) {
+      if (!deviceOrPointPath) return null;
+      
+      const pathParts = deviceOrPointPath.split('/').filter(function(p) { return p && p.trim(); });
+      const pathLower = deviceOrPointPath.toLowerCase();
+      
+      // Find the most specific match (longest path match)
+      let bestMatch = null;
+      let bestMatchLength = 0;
+      
+      locationPoints.forEach(function(locationPoint) {
+        const locationPathLower = locationPoint.path.toLowerCase();
+        
+        // Check if Location point is in the same folder (sibling)
+        // e.g., if point is /Device/points/Inputs/SomePoint, Location is /Device/points/Inputs/Location
+        if (pathParts.length > 0) {
+          const parentFolder = '/' + pathParts.slice(0, pathParts.length - 1).join('/');
+          const expectedLocationPath = parentFolder + '/Location';
+          
+          if (locationPathLower === expectedLocationPath.toLowerCase()) {
+            // Exact sibling match - this is the best match
+            bestMatch = locationPoint.value;
+            bestMatchLength = 999; // Highest priority
+            return;
+          }
+        }
+        
+        // Fallback: check if Location path contains the device/point path
+        if (locationPathLower.includes(pathLower)) {
+          const matchLength = locationPoint.path.split('/').length;
+          if (matchLength > bestMatchLength) {
+            bestMatch = locationPoint.value;
+            bestMatchLength = matchLength;
+          }
+        }
+      });
+      
+      return bestMatch;
+    }
+    
+    // OLD TRAVERSAL METHOD - KEPT FOR REFERENCE BUT NOT USED
+    function findLocationPoint_OLD_TRAVERSAL(baja, deviceComponent, devicePath, resultDiv, deviceIndex, totalDevices) {
+      const checkedPaths = new Set();
+      const systemFolders = ['Alarms', 'status', 'enabled', 'faultCause', 
+        'health', 'alarmSourceInfo', 'address', 'config', 'enumerationList'];
+      
+      // Limit max depth to 3 levels inside point folders
+      const maxDepth = 3;
+      let foundLocation = null;
+      
+      // Helper function to find BacnetDeviceFolder in parent path
+      function findParentDeviceFolder(path) {
+        if (!path) return null;
+        
+        // Extract parent path
+        const pathParts = path.split('/').filter(function(p) { return p && p.trim(); });
+        if (pathParts.length < 2) return null; // Need at least /Drivers/BacnetNetwork/...
+        
+        // Try each parent level, starting from immediate parent
+        for (let i = pathParts.length - 1; i >= 2; i--) { // Start from device, go up to BacnetNetwork
+          const parentPath = '/' + pathParts.slice(0, i).join('/');
+          const parentOrd = 'station:|slot:' + parentPath;
+          
+          // Try to resolve and check if it's a BacnetDeviceFolder
+          try {
+            return baja.Ord.make(parentOrd).get().then(function(parentComponent) {
+              if (parentComponent && isDeviceFolder(parentComponent)) {
+                // Found BacnetDeviceFolder - get its display name
+                const displayName = parentComponent.getDisplayName ? parentComponent.getDisplayName() : 
+                                  (parentComponent.getName ? parentComponent.getName() : null);
+                return displayName || null;
+              }
+              return null;
+            }).catch(function() {
+              return null;
+            });
+          } catch(e) {
+            return Promise.resolve(null);
+          }
+        }
+        return Promise.resolve(null);
+      }
+      
+      function traverseFolder(folder, currentPath, depth, insidePointFolder) {
+        if (foundLocation || (depth > maxDepth && insidePointFolder)) {
+          return Promise.resolve();
+        }
+        
+        return new Promise(function(resolve) {
+          try {
+            const slots = folder.getSlots();
+            if (!slots) {
+              resolve();
+              return;
+            }
+            
+            const promises = [];
+            slots.each(function(slot) {
+              if (foundLocation) {
+                return; // Already found, skip
+              }
+              
+              try {
+                const slotName = slot.getName ? slot.getName() : slot.toString();
+                if (!slotName) {
+                  return;
+                }
+                
+                // Skip known property names (not folders) - these are device properties, not child components
+                const propertyNames = ['in1', 'in2', 'in3', 'in4', 'in5', 'in6', 'in7', 'in8', 'in9', 'in10',
+                  'in11', 'in12', 'in13', 'in14', 'in15', 'in16', 'out', 'facets', 'value', 'ord', 'wsAnnotation',
+                  'fallback', 'overrideExpiration', 'AhuOrd', 'AlarmActive1', 'status', 'enabled', 'faultCause',
+                  'health', 'alarmSourceInfo', 'address', 'config', 'enumerationList'];
+                
+                if (propertyNames.some(function(prop) { return prop.toLowerCase() === slotName.toLowerCase(); })) {
+                  return; // Skip properties - not folders
+                }
+                
+                // Clean path
+                let childPath = currentPath;
+                if (!childPath.endsWith('/')) {
+                  childPath += '/';
+                }
+                childPath += slotName;
+                childPath = childPath.replace(/\/+/g, '/');
+                
+                // Skip if already checked
+                if (checkedPaths.has(childPath)) {
+                  return;
+                }
+                
+                // Skip system folders
+                if (systemFolders.some(function(sys) { return sys.toLowerCase() === slotName.toLowerCase(); })) {
+                  return;
+                }
+                
+                checkedPaths.add(childPath);
+                
+                // Clean ORD
+                let cleanPath = childPath.replace(/^slot:/, '').trim();
+                if (!cleanPath.startsWith('/')) {
+                  cleanPath = '/' + cleanPath;
+                }
+                const childOrd = 'station:|slot:' + cleanPath;
+                
+                // Resolve component to check its type
+                const promise = baja.Ord.make(childOrd).get().then(function(childComponent) {
+                  if (!childComponent || foundLocation) {
+                    return;
+                  }
+                  
+                  // CRITICAL: Only traverse into components that have getSlots() (are folders)
+                  // Skip properties and simple components that aren't folders
+                  if (!childComponent.getSlots) {
+                    // But check if it's a Location point (might not have getSlots but is a point)
+                    if ((slotName === 'Location' || slotName.toLowerCase() === 'location') && insidePointFolder) {
+                      if (childComponent.get && childComponent.get('out') !== undefined) {
+                        // Found Location point - subscribe to get enum value
+                        const subscriber = new baja.Subscriber();
+                        let locationValue = null;
+                        
+                        subscriber.attach('changed', function(prop) {
+                          if (prop && prop.getName && prop.getName() === 'out') {
+                            const outValue = this.get(prop);
+                            if (outValue) {
+                              const enumValue = outValue.toString();
+                              const match = enumValue.match(/^(.+?)\s*\{/);
+                              locationValue = match ? match[1].trim() : enumValue.split('{')[0].trim();
+                            }
+                          }
+                        });
+                        
+                        // Get initial value with subscription
+                        return baja.Ord.make(childOrd).get({ subscriber: subscriber }).then(function(point) {
+                          const outValue = point.get('out');
+                          if (outValue) {
+                            const enumValue = outValue.toString();
+                            const match = enumValue.match(/^(.+?)\s*\{/);
+                            const value = match ? match[1].trim() : enumValue.split('{')[0].trim();
+                            
+                            foundLocation = value;
+                            
+                            // Clean up subscription after getting value
+                            setTimeout(function() {
+                              try {
+                                subscriber.unsubscribeAll();
+                                subscriber.detach();
+                              } catch(e) {}
+                            }, 200);
+                            
+                            return Promise.resolve(value);
+                          }
+                        }).catch(function(err) {
+                          // Try next
+                        });
+                      }
+                    }
+                    return; // Not a folder, skip
+                  }
+                  if (!childComponent || foundLocation) {
+                    return;
+                  }
+                  
+                  // Check if this is a point folder
+                  const isPointFolderType = isPointFolder(childComponent);
+                  
+                  // Debug logging
+                  if (resultDiv && deviceIndex <= 3) { // Only log first 3 devices to avoid spam
+                    const typeName = childComponent.getType ? (childComponent.getType().getName ? childComponent.getType().getName() : 'unknown') : 'no-type';
+                    console.log('🔍 Location Search - Device ' + deviceIndex + ': Checking', slotName, 'Type:', typeName, 'isPointFolder:', isPointFolderType, 'insidePointFolder:', insidePointFolder);
+                  }
+                  
+                  // If we found a point folder, traverse into it
+                  if (isPointFolderType && !insidePointFolder) {
+                    if (resultDiv && deviceIndex <= 3) {
+                      console.log('✅ Location Search - Device ' + deviceIndex + ': Found point folder:', slotName, 'at', cleanPath);
+                    }
+                    if (childComponent.getSlots) {
+                      return traverseFolder(childComponent, cleanPath, 0, true);
+                    }
+                  } else if (insidePointFolder) {
+                    // We're inside a point folder - check for Location EnumWriteable
+                    if (slotName === 'Location' || slotName.toLowerCase() === 'location') {
+                      if (resultDiv && deviceIndex <= 3) {
+                        console.log('🔍 Location Search - Device ' + deviceIndex + ': Found Location component:', slotName, 'at', cleanPath);
+                      }
+                      // Check if it's an EnumWriteable (has 'out' property)
+                      if (childComponent.get && childComponent.get('out') !== undefined) {
+                        if (resultDiv && deviceIndex <= 3) {
+                          console.log('✅ Location Search - Device ' + deviceIndex + ': Found Location point with out property:', slotName, 'at', cleanPath);
+                        }
+                        // Found Location point - subscribe to get enum value
+                        const subscriber = new baja.Subscriber();
+                        let locationValue = null;
+                        
+                        subscriber.attach('changed', function(prop) {
+                          if (prop && prop.getName && prop.getName() === 'out') {
+                            const outValue = this.get(prop);
+                            if (outValue) {
+                              const enumValue = outValue.toString();
+                              const match = enumValue.match(/^(.+?)\s*\{/);
+                              locationValue = match ? match[1].trim() : enumValue.split('{')[0].trim();
+                            }
+                          }
+                        });
+                        
+                        // Get initial value with subscription
+                        return baja.Ord.make(childOrd).get({ subscriber: subscriber }).then(function(point) {
+                          const outValue = point.get('out');
+                          if (outValue) {
+                            const enumValue = outValue.toString();
+                            const match = enumValue.match(/^(.+?)\s*\{/);
+                            const value = match ? match[1].trim() : enumValue.split('{')[0].trim();
+                            
+                            foundLocation = value;
+                            
+                            // Clean up subscription after getting value
+                            setTimeout(function() {
+                              try {
+                                subscriber.unsubscribeAll();
+                                subscriber.detach();
+                              } catch(e) {}
+                            }, 200);
+                            
+                            return Promise.resolve(value);
+                          }
+                        }).catch(function(err) {
+                          // Try next
+                        });
+                      }
+                    }
+                    
+                    // Continue traversal inside point folder (up to maxDepth)
+                    if (depth < maxDepth && childComponent.getSlots) {
+                      return traverseFolder(childComponent, cleanPath, depth + 1, true);
+                    }
+                  } else {
+                    // Not in point folder yet - continue searching for point folders
+                    // Skip BacnetDeviceFolder (organizational folders like Zone1, Floor1) - they don't contain points
+                    const isDeviceFolderType = isDeviceFolder(childComponent);
+                    if (!isDeviceFolderType && childComponent.getSlots && depth < 10) {
+                      return traverseFolder(childComponent, cleanPath, depth + 1, false);
+                    }
+                  }
+                }).catch(function(err) {
+                  // Ignore errors
+                });
+                promises.push(promise);
+              } catch(e) {
+                // Ignore individual slot errors
+              }
+            });
+            
+            Promise.all(promises).then(function() {
+              resolve();
+            }).catch(function() {
+              resolve();
+            });
+          } catch(e) {
+            resolve();
+          }
+        });
+      }
+      
+      return traverseFolder(deviceComponent, devicePath, 0, false).then(function() {
+        if (foundLocation) {
+          return foundLocation;
+        }
+        
+        // Location point not found - try to get parent BacnetDeviceFolder display name as fallback
+        return findParentDeviceFolder(baja, devicePath);
+      });
+    }
+    
+    // Helper function to find BacnetDeviceFolder in parent path and return its display name
+    function findParentDeviceFolder(baja, path) {
+      if (!path) return Promise.resolve("Unknown");
+      
+      // Extract parent path parts
+      const pathParts = path.split('/').filter(function(p) { return p && p.trim(); });
+      if (pathParts.length < 2) return Promise.resolve("Unknown"); // Need at least /Drivers/BacnetNetwork/...
+      
+      // Try each parent level, starting from immediate parent
+      function checkParentLevel(level) {
+        if (level < 2) return Promise.resolve("Unknown");
+        
+        const parentPath = '/' + pathParts.slice(0, level).join('/');
+        const parentOrd = 'station:|slot:' + parentPath;
+        
+        return baja.Ord.make(parentOrd).get().then(function(parentComponent) {
+          if (parentComponent && isDeviceFolder(parentComponent)) {
+            // Found BacnetDeviceFolder - get its display name
+            const displayName = parentComponent.getDisplayName ? parentComponent.getDisplayName() : 
+                              (parentComponent.getName ? parentComponent.getName() : null);
+            return displayName || "Unknown";
+          }
+          // Not a device folder, try next level up
+          return checkParentLevel(level - 1);
+        }).catch(function() {
+          // Error resolving, try next level up
+          return checkParentLevel(level - 1);
+        });
+      }
+      
+      // Start checking from device's immediate parent
+      return checkParentLevel(pathParts.length - 1);
+    }
+    
+    window.findDevices = function() {
+      const resultDiv = document.getElementById('result');
+      const exportBtn = document.getElementById('exportBtn');
+      resultDiv.innerHTML = 'Loading Baja...';
+      exportBtn.style.display = 'none';
+      lastResults = null;
+      
+      if (typeof require !== 'undefined') {
+        require(["baja!", "Promise"], function (baja, Promise) {
+          runFindDevices(baja);
+        }, function(err) {
+          resultDiv.innerHTML = 'Error loading Baja: ' + (err.message || err);
+        });
+      } else {
+        var attempts = 0;
+        var checkBaja = setInterval(function() {
+          attempts++;
+          if (typeof baja !== 'undefined') {
+            clearInterval(checkBaja);
+            runFindDevices(baja);
+          } else if (attempts > 20) {
+            clearInterval(checkBaja);
+            resultDiv.innerHTML = 'Error: Baja not available';
+          }
+        }, 500);
+      }
+    };
+    
+    function runFindDevices(baja) {
+      const resultDiv = document.getElementById('result');
+      const overallStartTime = Date.now();
+      let stepTimes = {};
+      
+      resultDiv.innerHTML = '🔍 Step 0: Querying devices using BQL...';
+      
+      // Scope to BacnetNetwork for performance (same as point device queries)
+      const deviceBql = "station:|slot:/Drivers/BacnetNetwork|bql:select slotPath, displayName, name from bacnet:BacnetDevice";
+      
+      const step0StartTime = Date.now();
+      new Promise(function(resolve, reject) {
+        const timeout = setTimeout(function() { reject(new Error('Device query timeout')); }, 60000);
+        baja.Ord.make(deviceBql).get().then(function(table) {
+          clearTimeout(timeout);
+          stepTimes.step0_deviceQuery = Date.now() - step0StartTime;
+          if (!table) {
+            resolve([]);
+            return;
+          }
+          const devices = [];
+          table.cursor({
+            limit: 10000,
+            each: function(record) {
+              try {
+                let slotPath = record.get('slotPath')?.toString() || '';
+                const displayName = record.get('displayName')?.toString() || '';
+                const name = record.get('name')?.toString() || '';
+                
+                if (slotPath) {
+                  slotPath = slotPath.replace(/^slot:/, '').trim();
+                  if (slotPath) {
+                    devices.push({
+                      slotPath: slotPath,
+                      displayName: displayName || name,
+                      name: name || displayName
+                    });
+                  }
+                }
+              } catch(e) {
+                console.warn('Error processing device record:', e);
+              }
+            },
+            after: function() {
+              resolve(devices);
+            }
+          });
+        }).catch(function(err) {
+          clearTimeout(timeout);
+          stepTimes.step0_deviceQuery = Date.now() - step0StartTime;
+          reject(err);
+        });
+      }).then(function(devices) {
+        resultDiv.innerHTML = '✅ Found ' + devices.length + ' device(s) (' + stepTimes.step0_deviceQuery + 'ms)<br>' +
+          '🔧 Step 1: Querying ALL point devices and Location points using BQL (one-time queries)...';
+        
+        const step1StartTime = Date.now();
+        resultDiv.innerHTML = '✅ Found ' + devices.length + ' device(s)<br>' +
+          '🔧 Step 1: Querying ALL point devices and Location points using BQL (one-time queries)...';
+        
+        // Step 1: Query ALL point devices, Location points, all points, history configs, AND schedules ONCE using combined queries
+        return Promise.all([
+          findAllPointDevicesAndLocations(baja, resultDiv),
+          findAllPoints(baja, resultDiv), // Collect all points for points array
+          findAllHistoryConfigs(baja, resultDiv), // Collect all history configs to match to points
+          findAllBooleanSchedules(baja, resultDiv) // Collect boolean schedules only
+        ]).then(function(results) {
+          stepTimes.step1_pointDeviceQueries = Date.now() - step1StartTime;
+          
+          const allPointDevicesByCategory = results[0].pointDevices || {};
+          const allLocationPoints = results[0].locationPoints || [];
+          const allPoints = results[1] || [];
+          const allHistoryConfigs = results[2] || [];
+          const allSchedules = results[3] || [];
+          
+          // Match history configs to points
+          matchHistoryConfigsToPoints(allPoints, allHistoryConfigs);
+          
+          // Extract unique histories from history configs (limit to prevent huge file size)
+          const histories = extractHistoriesFromConfigs(allHistoryConfigs);
+          
+          // Flatten all point devices into a single array with category info
+          const allPointDevices = [];
+          Object.keys(allPointDevicesByCategory).forEach(function(category) {
+            allPointDevicesByCategory[category].forEach(function(point) {
+              allPointDevices.push(point);
+            });
+          });
+          
+          const totalPointDevices = allPointDevices.length;
+          
+          if (resultDiv) {
+            resultDiv.innerHTML = '✅ Found ' + devices.length + ' device(s) (' + stepTimes.step0_deviceQuery + 'ms)<br>' +
+              '✅ Step 1 Complete: Found ' + totalPointDevices + ' point device(s) and ' + allLocationPoints.length + ' Location points (' + stepTimes.step1_pointDeviceQueries + 'ms)<br>' +
+              '🔧 Step 2: Matching points to devices and categorizing...';
+          }
+          
+          const step2StartTime = Date.now();
+          
+          // Step 2: Process each device and match points (no need to resolve devices)
+          // First, create a map of devices that have point devices (these become separate entries)
+          const pointDeviceMap = {}; // Maps parent device path to point device info arrays
+          
+          // Process all point devices - find their parent devices
+          const unmatchedPointDevices = []; // Point devices that don't match any parent device
+          
+          allPointDevices.forEach(function(pointDevice) {
+            // Find which device this point belongs to
+            const pointPathParts = pointDevice.path.split('/');
+            let matched = false;
+            
+            // Look for device path (usually 3-4 levels deep: /Drivers/BacnetNetwork/DeviceName/...)
+            for (let i = 3; i <= Math.min(5, pointPathParts.length); i++) {
+              const potentialDevicePath = '/' + pointPathParts.slice(0, i).join('/');
+              // Check if this matches a device
+              const matchingDevice = devices.find(function(d) {
+                const cleanPath = d.slotPath.replace(/^slot:/, '').trim();
+                const normalizedPath = cleanPath.startsWith('/') ? cleanPath : '/' + cleanPath;
+                return normalizedPath.toLowerCase() === potentialDevicePath.toLowerCase();
+              });
+              
+              if (matchingDevice) {
+                // Found parent device - add point device entry
+                if (!pointDeviceMap[potentialDevicePath]) {
+                  pointDeviceMap[potentialDevicePath] = [];
+                }
+                pointDeviceMap[potentialDevicePath].push(pointDevice);
+                matched = true;
+                break;
+              }
+            }
+            
+            // If no parent device found, add to unmatched list (will be added as standalone devices)
+            if (!matched) {
+              unmatchedPointDevices.push(pointDevice);
+            }
+          });
+          
+          const categorized = [];
+          const locationPromises = [];
+          let equipIndex = 1;
+          
+          // allPoints is available from the Promise.all results above
+          
+          devices.forEach(function(device, index) {
+            const deviceName = device.displayName || device.name || '';
+            const devicePath = device.slotPath;
+            
+            // Clean device path
+            let cleanDevicePath = devicePath.replace(/^slot:/, '').trim();
+            if (!cleanDevicePath.startsWith('/')) {
+              cleanDevicePath = '/' + cleanDevicePath;
+            }
+            
+            // Check if this device has point devices (ExhFan, sensors, etc.)
+            const devicePointDevices = pointDeviceMap[cleanDevicePath.toLowerCase()];
+            
+            if (devicePointDevices && devicePointDevices.length > 0) {
+              // Create separate entry for EACH point device (use point's displayName as device name)
+              devicePointDevices.forEach(function(pointDevice) {
+                // Match Location point - Location is usually a sibling in the same folder
+                // e.g., if point is /Device/points/Inputs/SomePoint, Location is /Device/points/Inputs/Location
+                const pointPathParts = pointDevice.path.split('/').filter(function(p) { return p && p.trim(); });
+                let location = null;
+                
+                // First: Check for exact sibling Location point (same folder, named "Location")
+                if (pointPathParts.length > 0) {
+                  const parentFolder = '/' + pointPathParts.slice(0, pointPathParts.length - 1).join('/');
+                  const expectedLocationPath = parentFolder + '/Location';
+                  
+                  const siblingLocation = allLocationPoints.find(function(loc) {
+                    return loc.path.toLowerCase() === expectedLocationPath.toLowerCase();
+                  });
+                  
+                  if (siblingLocation) {
+                    location = siblingLocation.value;
+                  }
+                }
+                
+                // Fallback: Use general matching function
+                if (!location || location === "Unknown") {
+                  location = matchLocationPointToDevice(allLocationPoints, pointDevice.path);
+                }
+                if (!location || location === "Unknown") {
+                  // Try parent device path
+                  location = matchLocationPointToDevice(allLocationPoints, cleanDevicePath);
+                }
+                
+                // If still no Location point found, will try parent device folder later
+                if (!location || location === "Unknown") {
+                  const locationPromise = findParentDeviceFolder(baja, cleanDevicePath).then(function(folderName) {
+                    return folderName || "Unknown";
+                  }).catch(function() {
+                    return "Unknown";
+                  });
+                  locationPromises.push({ equipIndex: equipIndex, promise: locationPromise });
+                  location = null;
+                }
+                
+                categorized.push({
+                  id: "equip_" + equipIndex,
+                  name: pointDevice.displayName || pointDevice.name || pointDevice.pointName, // Always use displayName (customer-friendly)
+                  type: pointDevice.category, // Use the category from pointToDeviceRules
+                  location: location || "Pending",
+                  ord: pointDevice.path,
+                  _equipIndex: equipIndex
+                });
+                
+                equipIndex++;
+              });
+              
+              // Don't add the parent device if it has point devices (they're listed separately)
+              return; // Skip adding parent device
+            }
+            
+            // Regular device (no ExhFan points) - process normally
+            let deviceType = matchDeviceType(deviceName);
+            
+            // Match Location point to this device
+            let location = matchLocationPointToDevice(allLocationPoints, cleanDevicePath);
+            
+            // If no Location point found, try parent device folder
+            if (!location || location === "Unknown") {
+              const locationPromise = findParentDeviceFolder(baja, cleanDevicePath).then(function(folderName) {
+                return folderName || "Unknown";
+              }).catch(function() {
+                return "Unknown";
+              });
+              locationPromises.push({ equipIndex: equipIndex, promise: locationPromise });
+              location = null;
+            }
+            
+            categorized.push({
+              id: "equip_" + equipIndex,
+              name: deviceName,
+              type: deviceType,
+              location: location || "Pending",
+              ord: cleanDevicePath,
+              _equipIndex: equipIndex
+            });
+            
+            equipIndex++;
+            
+            // Update progress
+            if (equipIndex % 10 === 0 || equipIndex === devices.length + totalPointDevices) {
+              resultDiv.innerHTML = '✅ Found ' + devices.length + ' device(s) (' + stepTimes.step0_deviceQuery + 'ms)<br>' +
+                '✅ Step 1 Complete: Found ' + totalPointDevices + ' point device(s) and ' + allLocationPoints.length + ' Location points (' + stepTimes.step1_pointDeviceQueries + 'ms)<br>' +
+                '🔧 Step 2: Processing devices... (' + equipIndex + ' entries created)<br>' +
+                '✅ Categorized: ' + categorized.length + ' devices';
+            }
+          });
+          
+          // Add unmatched point devices as standalone devices
+          unmatchedPointDevices.forEach(function(pointDevice) {
+            // Try to find location for standalone point device
+            // Location points are usually siblings in the same folder (e.g., parent.Location)
+            const pointPathParts = pointDevice.path.split('/').filter(function(p) { return p && p.trim(); });
+            let location = null;
+            
+            // First: Check for exact sibling Location point (same folder, named "Location")
+            if (pointPathParts.length > 0) {
+              const parentFolder = '/' + pointPathParts.slice(0, pointPathParts.length - 1).join('/');
+              const expectedLocationPath = parentFolder + '/Location';
+              
+              const siblingLocation = allLocationPoints.find(function(loc) {
+                return loc.path.toLowerCase() === expectedLocationPath.toLowerCase();
+              });
+              
+              if (siblingLocation) {
+                location = siblingLocation.value;
+              }
+            }
+            
+            // Fallback: Use general matching function
+            if (!location || location === "Unknown") {
+              location = matchLocationPointToDevice(allLocationPoints, pointDevice.path);
+            }
+            
+            // If no Location point found, try parent device folder
+            if (!location || location === "Unknown") {
+              if (pointPathParts.length >= 3) {
+                const parentPath = '/' + pointPathParts.slice(0, pointPathParts.length - 1).join('/');
+                const locationPromise = findParentDeviceFolder(baja, parentPath).then(function(folderName) {
+                  return folderName || "Unknown";
+                }).catch(function() {
+                  return "Unknown";
+                });
+                locationPromises.push({ equipIndex: equipIndex, promise: locationPromise });
+                location = null;
+              } else {
+                location = "Unknown";
+              }
+            }
+            
+            categorized.push({
+              id: "equip_" + equipIndex,
+              name: pointDevice.displayName || pointDevice.name || pointDevice.pointName, // Always use displayName (customer-friendly)
+              type: pointDevice.category,
+              location: location || "Pending",
+              ord: pointDevice.path,
+              _equipIndex: equipIndex
+            });
+            
+            equipIndex++;
+          });
+          
+          // Wait for all location folder checks to complete (if any)
+          const step2EndTime = Date.now();
+          stepTimes.step2_matching = step2EndTime - step2StartTime;
+          
+          if (locationPromises.length > 0) {
+            const step3StartTime = Date.now();
+            return Promise.all(locationPromises.map(function(item) { return item.promise; })).then(function(locationResults) {
+              stepTimes.step3_locationFallback = Date.now() - step3StartTime;
+              
+              // Update locations for devices that needed parent folder check
+              locationPromises.forEach(function(item, idx) {
+                const equipIdx = item.equipIndex;
+                const device = categorized.find(function(d) { return d._equipIndex === equipIdx; });
+                if (device && device.location === "Pending") {
+                  device.location = locationResults[idx] || "Unknown";
+                }
+              });
+              
+              // Clean up temporary index fields
+              categorized.forEach(function(device) {
+                delete device._equipIndex;
+              });
+              
+              return { categorized: categorized, allPoints: allPoints, allSchedules: allSchedules || [], histories: histories || [] };
+            });
+          } else {
+            // Clean up temporary index fields
+            categorized.forEach(function(device) {
+              delete device._equipIndex;
+            });
+            return { categorized: categorized, allPoints: allPoints, allSchedules: allSchedules || [], histories: histories || [] };
+          }
+        }).then(function(results) {
+          // Extract categorized, allPoints, allSchedules, and histories from results
+          const categorized = results.categorized || results;
+          const allPoints = results.allPoints || [];
+          const allSchedules = results.allSchedules || [];
+          const histories = results.histories || [];
+          
+          const step4StartTime = Date.now();
+          
+          if (resultDiv) {
+            const currentTotal = Date.now() - overallStartTime;
+            resultDiv.innerHTML = '✅ Found ' + devices.length + ' device(s) (' + stepTimes.step0_deviceQuery + 'ms)<br>' +
+              '✅ Step 1 Complete: Found point devices, Location points, and all points (' + stepTimes.step1_pointDeviceQueries + 'ms)<br>' +
+              '✅ Step 2 Complete: All devices processed (' + stepTimes.step2_matching + 'ms)<br>' +
+              (stepTimes.step3_locationFallback ? '✅ Step 3 Complete: Location fallback checks (' + stepTimes.step3_locationFallback + 'ms)<br>' : '') +
+              '🔧 Step 4: Finalizing results...';
+          }
+          // Group by type for display
+          const byType = {};
+          categorized.forEach(function(device) {
+            if (!byType[device.type]) {
+              byType[device.type] = [];
+            }
+            byType[device.type].push(device);
+          });
+          
+          stepTimes.step4_finalizing = Date.now() - step4StartTime;
+          const totalTime = Date.now() - overallStartTime;
+          
+          // Display results
+          let html = '<div class="stats">⏱️ <strong>Performance Summary:</strong><br>';
+          html += 'Step 0 - Device Query: ' + stepTimes.step0_deviceQuery + 'ms<br>';
+          html += 'Step 1 - Point Device Queries: ' + stepTimes.step1_pointDeviceQueries + 'ms<br>';
+          html += 'Step 2 - Matching & Categorizing: ' + stepTimes.step2_matching + 'ms<br>';
+          if (stepTimes.step3_locationFallback) {
+            html += 'Step 3 - Location Fallback: ' + stepTimes.step3_locationFallback + 'ms<br>';
+          }
+          html += 'Step 4 - Finalizing: ' + stepTimes.step4_finalizing + 'ms<br>';
+          html += '<strong>Total Time: ' + totalTime + 'ms</strong></div>';
+          html += '<div class="stats">Total devices: ' + categorized.length + ' | Total points: ' + allPoints.length + '</div>';
+          Object.keys(byType).sort().forEach(function(type) {
+            html += '<div style="margin-top: 15px;"><strong style="color:#4CAF50;">' + type + '</strong> (' + byType[type].length + ')</div>';
+            byType[type].forEach(function(device) {
+              html += '<div class="device-item">';
+              html += '<span class="device-name">' + device.name + '</span>';
+              html += '<span class="device-type">[' + device.type + ']</span>';
+              html += '<span style="color:#888; margin-left:10px;">Location: ' + device.location + '</span>';
+              html += '<span class="device-path">' + device.ord + '</span>';
+              html += '</div>';
+            });
+          });
+          
+          resultDiv.innerHTML = html;
+          
+          // Store results in demo-site-profile.json.json format
+          lastResults = {
+            metadata: {
+              exportDate: new Date().toISOString(),
+              toolVersion: "1.0.0",
+              stationInfo: {}
+            },
+            data: {
+              equipment: categorized,
+              points: allPoints, // All control points collected
+              schedules: allSchedules, // Boolean schedules collected
+              histories: histories, // Unique histories extracted from configs
+              tags: {
+                siteName: "Building Automation System",
+                siteReference: "BAS-001",
+                equipmentCount: categorized.length,
+                pointCount: allPoints.length,
+                facets: ["hvac", "equip", "point", "sensor", "cmd"].concat(
+                  Object.keys(byType).map(function(type) {
+                    return type.toLowerCase().replace(/\s+/g, '');
+                  })
+                )
+              }
+            }
+          };
+          document.getElementById('exportBtn').style.display = 'inline-block';
+          
+          console.log('✅ Device discovery complete:', lastResults);
+        });
+      }).catch(function(err) {
+        resultDiv.innerHTML = '❌ Error: ' + (err.message || err);
+        console.error('❌ Error:', err);
+      });
+    }
+    
+    window.exportJSON = function() {
+      if (!lastResults) {
+        alert('No results to export. Run device discovery first.');
+        return;
+      }
+      
+      // Ensure format matches demo-site-profile.json.json structure
+      const exportData = {
+        metadata: lastResults.metadata || {
+          exportDate: new Date().toISOString(),
+          toolVersion: "1.0.0",
+          stationInfo: {}
+        },
+        data: {
+          equipment: lastResults.data?.equipment || lastResults.equipment || [],
+          points: lastResults.data?.points || [],
+          schedules: lastResults.data?.schedules || [],
+          histories: lastResults.data?.histories || [],
+          tags: lastResults.data?.tags || {
+            siteName: "Building Automation System",
+            siteReference: "BAS-001",
+            equipmentCount: (lastResults.data?.equipment || lastResults.equipment || []).length,
+            pointCount: (lastResults.data?.points || []).length,
+            facets: ["hvac", "equip", "point", "sensor", "cmd"]
+          }
+        }
+      };
+      
+      const json = JSON.stringify(exportData, null, 2);
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'site-profile.json';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    };
+    
+    // Initialize
+    displayRules();
+  </script>
+</body>
+</html>
+

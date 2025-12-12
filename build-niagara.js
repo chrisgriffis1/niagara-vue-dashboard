@@ -57,6 +57,55 @@ function copyRecursive(src, dest) {
 copyRecursive(distDir, fileDir);
 console.log('✅ Files copied\n');
 
+// Replace index.html with Niagara-compatible version (uses ord?file: scheme)
+console.log('📝 Replacing index.html with ord?file: compatible version...');
+const assetsDir = path.join(fileDir, 'assets');
+const jsFiles = fs.readdirSync(assetsDir).filter(f => f.endsWith('.js'));
+const cssFiles = fs.readdirSync(assetsDir).filter(f => f.endsWith('.css'));
+
+if (jsFiles.length > 0) {
+  const jsFile = jsFiles[0];
+  const cssFile = cssFiles.length > 0 ? cssFiles[0] : null;
+  
+  // Create Niagara-compatible HTML with ord?file: scheme
+  let niagaraHtml = `<!-- @noSnoop -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Niagara Vue Dashboard</title>
+  
+  <!-- Load BajaScript first (for Niagara environment) -->
+  <script type='text/javascript' src='/requirejs/config.js' onerror="window.requirejsConfigFailed = true;"></script>
+  <script type='text/javascript' src='/module/js/com/tridium/js/ext/require/require.min.js' onerror="window.requirejsFailed = true;"></script>
+  
+`;
+  
+  // Add CSS link if CSS file exists
+  if (cssFile) {
+    niagaraHtml += `  <!-- Load CSS using ord?file: scheme -->\n`;
+    niagaraHtml += `  <link rel="stylesheet" href="/ord?file:^web1/assets/${cssFile}|view:web:FileDownloadView">\n`;
+  }
+  
+  niagaraHtml += `</head>
+<body>
+  <div id="app"></div>
+  
+  <!-- Load Vue app as IIFE (non-module) using ord?file: scheme -->
+  <script src="/ord?file:^web1/assets/${jsFile}|view:web:FileDownloadView"></script>
+</body>
+</html>`;
+  
+  fs.writeFileSync(path.join(fileDir, 'index.html'), niagaraHtml);
+  console.log(`✅ Created Niagara-compatible index.html`);
+  console.log(`   - JS: ${jsFile}`);
+  if (cssFile) console.log(`   - CSS: ${cssFile}`);
+  console.log(`   - Uses ord?file: scheme\n`);
+} else {
+  console.warn('⚠️  Could not find JS files to create Niagara-compatible HTML\n');
+}
+
 // Step 3: Add @noSnoop directives to all JS and CSS files
 console.log('📝 Step 3: Adding @noSnoop directives...');
 function addNoSnoopToFiles(dir) {

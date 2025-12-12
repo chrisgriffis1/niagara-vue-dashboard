@@ -1,0 +1,435 @@
+<!-- @noSnoop -->
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Pattern 3: Batch Resolve & Multi-Point Subscription</title>
+  <style>
+    body { font-family: Arial; background: #1e1e1e; color: #fff; padding: 20px; }
+    button { background: #4CAF50; color: white; border: none; padding: 10px 20px; cursor: pointer; margin: 5px; }
+    button.stop { background: #f44336; }
+    #result { background: #2d2d2d; padding: 15px; border-radius: 4px; margin-top: 10px; font-family: monospace; min-height: 100px; }
+  </style>
+</head>
+<body>
+  <h1>Pattern 3: Batch Resolve & Multi-Point Subscription</h1>
+  <p>This example demonstrates how to find a device by implied tags and subscribe to all its control points.</p>
+  
+  <h2>What This Does</h2>
+  <ul>
+    <li>Uses BQL to find components</li>
+    <li>Uses BatchResolve to efficiently resolve multiple components</li>
+    <li>Checks implied tags (n:device) to find HP/Heatpump devices</li>
+    <li>Gets all control points from the device</li>
+    <li>Subscribes to all points with a single subscriber</li>
+    <li>Displays live updates from all points</li>
+  </ul>
+
+  <button onclick="testBatchResolve()">Test Batch Resolve (HP Device)</button>
+  <button id="stopBtn" onclick="stopBatchSubscription()" class="stop" style="display:none;">Stop All Subscriptions</button>
+  <div id="result">Click "Test Batch Resolve" to find HP device and subscribe to all its points</div>
+
+  <script type='text/javascript' src='/requirejs/config.js'></script>
+  <script type='text/javascript' src='/module/js/com/tridium/js/ext/require/require.min.js'></script>
+
+  <script>
+    /**
+     * Pattern 3: Batch Resolve & Multi-Point Subscription
+     * 
+     * This pattern shows how to:
+     * 1. Use BQL to find components
+     * 2. Use BatchResolve to efficiently resolve multiple ORDs
+     * 3. Check implied tags (component.getTags()) for device matching
+     * 4. Get all control points from a device
+     * 5. Subscribe to multiple points with one subscriber
+     * 
+     * Key Points:
+     * - BatchResolve efficiently resolves multiple ORDs with minimal network calls
+     * - Check tags using component.tags() (returns Promise) - per bajadocs/component
+     * - Use tags.getAll() to get array, then find by tag.getId() === 'n:device'
+     * - Get value with tag.getValue()
+     * - Case-insensitive matching: toLowerCase().includes('hp')
+     * - One subscriber can handle multiple points
+     * - Filter for 'out' property changes in the handler
+     * - Track which point sent the update using point reference
+     * 
+     * Tag Checking (per bajadocs/component):
+     * - Use component.tags() - returns Promise<ComponentTags>
+     * - Use tags.getAll() to get array of all tags
+     * - Each tag has getId() and getValue() methods
+     * - Tags are case-sensitive, so use toLowerCase() for matching
+     * - IMPORTANT: tags() is async - must use .then()
+     */
+    
+    // Global subscription state
+    window.batchSubscriber = null;
+    window.batchPoints = [];
+    window.batchUpdateCounts = {};
+    
+    window.testBatchResolve = function() {
+      const resultDiv = document.getElementById('result');
+      resultDiv.innerHTML = 'Loading Baja...';
+      
+      if (typeof require !== 'undefined') {
+        require(["baja!", "Promise"], function (baja, Promise) {
+          runBatchResolveTest(baja);
+        }, function(err) {
+          resultDiv.innerHTML = 'Error loading Baja: ' + (err.message || err);
+        });
+      } else {
+        var attempts = 0;
+        var checkBaja = setInterval(function() {
+          attempts++;
+          if (typeof baja !== 'undefined') {
+            clearInterval(checkBaja);
+            runBatchResolveTest(baja);
+          } else if (attempts > 20) {
+            clearInterval(checkBaja);
+            resultDiv.innerHTML = 'Error: Baja not available';
+          }
+        }, 500);
+      }
+    };
+    
+    window.stopBatchSubscription = function() {
+      if (window.batchSubscriber) {
+        try {
+          window.batchSubscriber.unsubscribeAll();
+        } catch(e) {
+          console.warn('Error unsubscribing:', e);
+        }
+        
+        try {
+          window.batchSubscriber.detach();
+        } catch(e) {
+          console.warn('Error detaching:', e);
+        }
+        
+        window.batchSubscriber = null;
+        window.batchPoints = [];
+        window.batchUpdateCounts = {};
+        document.getElementById('stopBtn').style.display = 'none';
+        const resultDiv = document.getElementById('result');
+        resultDiv.innerHTML = resultDiv.innerHTML + '<br><br><strong style="color:#4CAF50;">All subscriptions stopped.</strong>';
+      }
+    };
+    
+    function runBatchResolveTest(baja) {
+      const resultDiv = document.getElementById('result');
+      resultDiv.innerHTML = '🔍 Finding HP device...';
+      
+      // IMPORTANT: BQL cannot query components or tags directly
+      // Workaround: Query control points, extract device paths, then check tags directly
+      
+      // Step 1: Query control points and find unique device paths
+      const pointsBql = "station:|slot:/Drivers/BacnetNetwork|bql:select slotPath, displayName, name from control:ControlPoint";
+      
+      // Add timeout to prevent hanging
+      new Promise(function(resolve, reject) {
+        const timeout = setTimeout(function() { 
+          reject(new Error('BQL query timeout (60s)')); 
+        }, 60000);
+        
+        baja.Ord.make(pointsBql).get().then(function(table) {
+          clearTimeout(timeout);
+          resolve(table);
+        }).catch(function(err) {
+          clearTimeout(timeout);
+          reject(err);
+        });
+      }).then(function(table) {
+        const devicePaths = new Set(); // Use Set to get unique device paths
+        const deviceInfo = {}; // Store device info by path
+        
+        // Collect unique device paths from control points
+        table.cursor({
+          limit: 500, // Check more points to find devices
+          each: function(record) {
+            const slotPath = record.get('slotPath')?.toString();
+            if (slotPath) {
+              // Clean slotPath
+              let cleanSlotPath = slotPath.toString().trim().replace(/^slot:/, '');
+              // Extract device path (remove point name)
+              // slotPath format: /Drivers/BacnetNetwork/DeviceName/points/PointName
+              // We want: /Drivers/BacnetNetwork/DeviceName
+              const pathParts = cleanSlotPath.split('/').filter(function(p) { return p && p !== 'points'; });
+              if (pathParts.length >= 3) {
+                // Remove the last part (point name) to get device path
+                pathParts.pop();
+                const devicePath = '/' + pathParts.join('/');
+                
+                // Only add if it looks like a valid device path (has at least 3 parts)
+                if (devicePath && devicePath.length > 1 && !devicePaths.has(devicePath)) {
+                  devicePaths.add(devicePath);
+                  // Store first point's displayName as potential device name
+                  const displayName = record.get('displayName')?.toString();
+                  if (displayName && !deviceInfo[devicePath]) {
+                    deviceInfo[devicePath] = { path: devicePath, name: displayName };
+                  }
+                }
+              }
+            }
+          },
+          after: function() {
+            resultDiv.innerHTML = 'Found ' + devicePaths.size + ' unique devices<br>' +
+              'Checking tags for HP device...';
+            
+            // Step 2: Convert device paths to ORDs and use BatchResolve
+            const deviceOrds = Array.from(devicePaths).map(function(path) {
+              const cleanPath = path.startsWith('/') ? path : '/' + path;
+              return 'station:|slot:' + cleanPath;
+            });
+            
+            console.log('Checking', deviceOrds.length, 'devices for HP tag...');
+            
+            // Step 3: Check tags for each device to find HP device
+            // Note: We'll check tags directly without BatchResolve first to avoid BoxError
+            let devicePath = null;
+            let deviceName = null;
+            let checkedCount = 0;
+            
+            // Process devices one at a time to avoid overwhelming the system
+            function checkNextDevice(index) {
+              if (devicePath || index >= deviceOrds.length) {
+                // Done checking or found device
+                if (devicePath) {
+                  continueWithDevice();
+                } else {
+                  resultDiv.innerHTML = '❌ Error: No HP device found (checked ' + checkedCount + ' devices)<br>' +
+                    'Note: BQL cannot query tags directly - must check tags after resolving components';
+                }
+                return;
+              }
+              
+              const ord = deviceOrds[index];
+              checkedCount++;
+              
+              // Update progress
+              if (checkedCount % 10 === 0) {
+                resultDiv.innerHTML = 'Checking tags... (' + checkedCount + '/' + deviceOrds.length + ' devices)';
+              }
+              
+              baja.Ord.make(ord).get()
+                .then(function(component) {
+                  if (devicePath) return; // Already found
+                  
+                  // Use component.tags() method (returns Promise) - per bajadocs/component
+                  return component.tags().then(function(tags) {
+                    try {
+                      // Get all tags and find n:device tag
+                      const allTags = tags.getAll ? tags.getAll() : [];
+                      const deviceTag = allTags.find(function(tag) {
+                        return tag.getId && tag.getId() === 'n:device';
+                      });
+                      
+                      if (deviceTag) {
+                        const deviceTagValue = deviceTag.getValue ? deviceTag.getValue().toString().toLowerCase() : '';
+                        if (deviceTagValue.includes('hp') || deviceTagValue.includes('heatpump')) {
+                          // Found HP device!
+                          const path = ord.replace('station:|slot:', '');
+                          devicePath = path;
+                          deviceName = component.getDisplayName ? component.getDisplayName() : 
+                                      (component.getName ? component.getName() : 'Unknown');
+                          console.log('✅ Found HP device:', deviceName, 'at', devicePath, 'device tag:', deviceTagValue);
+                          continueWithDevice();
+                          return;
+                        }
+                      }
+                    } catch(e) {
+                      // Error checking tags, continue
+                      console.warn('Error checking tags for', ord, e);
+                    }
+                    
+                    // Check next device
+                    checkNextDevice(index + 1);
+                  }).catch(function(err) {
+                    // Tags call failed, continue to next
+                    console.warn('Tags call failed for', ord, err);
+                    checkNextDevice(index + 1);
+                  });
+                })
+                .catch(function(err) {
+                  // Component resolve failed, continue to next
+                  console.warn('Failed to resolve', ord, err);
+                  checkNextDevice(index + 1);
+                });
+            }
+            
+            function continueWithDevice() {
+              
+              resultDiv.innerHTML = '✅ Found device: <strong style="color:#4CAF50;">' + deviceName + '</strong><br>' +
+                'Path: ' + devicePath + '<br>' +
+                'Getting all control points...';
+              
+              // Step 4: Get all control points from this device
+              const devicePointsBql = "station:|slot:" + devicePath + "|bql:select slotPath, displayName, name from control:ControlPoint";
+              
+              // Add timeout
+              new Promise(function(resolve, reject) {
+                const timeout = setTimeout(function() { 
+                  reject(new Error('Points BQL query timeout (60s)')); 
+                }, 60000);
+                
+                baja.Ord.make(devicePointsBql).get().then(function(pointsTable) {
+                  clearTimeout(timeout);
+                  resolve(pointsTable);
+                }).catch(function(err) {
+                  clearTimeout(timeout);
+                  reject(err);
+                });
+              }).then(function(pointsTable) {
+                let pointSlotPaths = [];
+                
+                pointsTable.cursor({
+                  limit: 200,
+                  each: function(record) {
+                    const slotPath = record.get('slotPath')?.toString();
+                    if (slotPath) {
+                      let cleanSlotPath = slotPath.toString().trim().replace(/^slot:/, '');
+                      pointSlotPaths.push(cleanSlotPath);
+                    }
+                  },
+                  after: function() {
+                    if (pointSlotPaths.length === 0) {
+                      resultDiv.innerHTML = '❌ Error: No control points found for device';
+                      return;
+                    }
+                    
+                    resultDiv.innerHTML = '✅ Found device: <strong style="color:#4CAF50;">' + deviceName + '</strong><br>' +
+                      'Found ' + pointSlotPaths.length + ' control points<br>' +
+                      'Subscribing to all points...';
+                    
+                    // Step 5: Build ORDs for all points
+                    const pointOrds = pointSlotPaths.map(function(slotPath) {
+                      const cleanPath = slotPath.startsWith('/') ? slotPath : '/' + slotPath;
+                      return 'station:|slot:' + cleanPath;
+                    });
+                    
+                    console.log('Subscribing to', pointOrds.length, 'points...');
+                    
+                    // Step 6: Create subscriber and subscribe to all points
+                    const subscriber = new baja.Subscriber();
+                    window.batchSubscriber = subscriber;
+                    window.batchPoints = [];
+                    window.batchUpdateCounts = {};
+                    
+                    // Resolve all points with subscriber
+                    const resolvePromises = pointOrds.map(function(ord) {
+                      return baja.Ord.make(ord).get({ subscriber: subscriber })
+                        .then(function(point) {
+                          window.batchPoints.push({
+                            point: point,
+                            ord: ord,
+                            name: point.getName ? point.getName() : 'unknown'
+                          });
+                          window.batchUpdateCounts[ord] = 0;
+                          return point;
+                        })
+                        .catch(function(err) {
+                          console.warn('Error resolving point:', ord, err);
+                          return null;
+                        });
+                    });
+                    
+                    Promise.all(resolvePromises).then(function(points) {
+                      const successfulPoints = points.filter(function(p) { return p !== null; });
+                      
+                      resultDiv.innerHTML = '✅ Subscribed to <strong style="color:#4CAF50;">' + successfulPoints.length + '</strong> points<br>' +
+                        'Device: ' + deviceName + '<br><br>' +
+                        '<div id="batchUpdates" style="max-height:300px; overflow-y:auto; font-size:12px;">' +
+                        '<div>Waiting for updates...</div>' +
+                        '</div>' +
+                        '<div id="batchSummary" style="margin-top:10px; font-size:11px; color:#888;">Total updates: 0</div>';
+                      
+                      // Attach changed handler for all points
+                      subscriber.attach('changed', function(prop) {
+                        if (prop && prop.getName && prop.getName() === 'out') {
+                          // Find which point this is
+                          const point = this;
+                          const pointInfo = window.batchPoints.find(function(p) { return p.point === point; });
+                          
+                          if (pointInfo) {
+                            try {
+                              const out = point.get('out');
+                              if (out) {
+                                window.batchUpdateCounts[pointInfo.ord]++;
+                                const parsed = parseValue(out.toString());
+                                const pointName = pointInfo.name;
+                                
+                                // Update display
+                                const updatesDiv = document.getElementById('batchUpdates');
+                                const summaryDiv = document.getElementById('batchSummary');
+                                
+                                // Add update to list (keep last 20)
+                                const updateText = pointName + ': ' + parsed.value + 
+                                  (parsed.status ? ' (' + parsed.status + ')' : '') + 
+                                  ' @ ' + new Date().toLocaleTimeString();
+                                
+                                if (updatesDiv.children.length > 20) {
+                                  updatesDiv.removeChild(updatesDiv.firstChild);
+                                }
+                                
+                                const updateDiv = document.createElement('div');
+                                updateDiv.textContent = updateText;
+                                updateDiv.style.color = '#4CAF50';
+                                updateDiv.style.marginBottom = '2px';
+                                updatesDiv.appendChild(updateDiv);
+                                
+                                // Update summary
+                                const totalUpdates = Object.values(window.batchUpdateCounts).reduce(function(sum, count) { return sum + count; }, 0);
+                                summaryDiv.textContent = 'Total updates: ' + totalUpdates + ' | Points with updates: ' + 
+                                  Object.keys(window.batchUpdateCounts).filter(function(ord) { return window.batchUpdateCounts[ord] > 0; }).length;
+                                
+                                console.log('Update from', pointName + ':', parsed.value);
+                              }
+                            } catch(e) {
+                              console.error('Error processing update:', e);
+                            }
+                          }
+                        }
+                      });
+                      
+                      // Show stop button
+                      document.getElementById('stopBtn').style.display = 'inline-block';
+                      
+                      console.log('✅ Batch subscription active - watching', successfulPoints.length, 'points');
+                    }).catch(function(err) {
+                      resultDiv.innerHTML = '❌ Error resolving points: ' + (err.message || err);
+                      console.error('❌ Batch Error:', err);
+                    });
+                  }
+                });
+              }).catch(function(err) {
+                resultDiv.innerHTML = '❌ Error getting control points: ' + (err.message || err);
+                console.error('❌ Points BQL Error:', err);
+              });
+            }
+            
+            // Start checking devices
+            checkNextDevice(0);
+          }
+        });
+      }).catch(function(err) {
+        resultDiv.innerHTML = '❌ Error finding device: ' + (err.message || err);
+        console.error('❌ BQL Error:', err);
+      });
+    }
+    
+    // Helper to parse "value {status}" format
+    function parseValue(valueStr) {
+      const match = valueStr.match(/^(.+?)\s*\{([^}]+)\}/);
+      if (match) {
+        return {
+          value: match[1].trim(),
+          status: match[2].trim()
+        };
+      }
+      return {
+        value: valueStr.trim(),
+        status: null
+      };
+    }
+  </script>
+</body>
+</html>
+

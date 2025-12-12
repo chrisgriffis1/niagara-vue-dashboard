@@ -1,0 +1,212 @@
+<!-- @noSnoop -->
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Inspect Point Component</title>
+  <style>
+    body { font-family: Arial; background: #1e1e1e; color: #fff; padding: 20px; }
+    button { background: #4CAF50; color: white; border: none; padding: 10px 20px; cursor: pointer; margin: 5px; }
+    input[type="text"] { padding: 8px; width: 600px; margin-bottom: 10px; background: #333; border: 1px solid #555; color: #fff; }
+    pre { background: #2d2d2d; padding: 15px; border-radius: 4px; margin-top: 10px; font-family: monospace; white-space: pre-wrap; word-wrap: break-word; max-height: 600px; overflow: auto; }
+    .error { color: #f44336; }
+    .success { color: #4CAF50; }
+  </style>
+</head>
+<body>
+  <h1>Inspect Point Component</h1>
+  <p>Enter a component slot path to inspect its full object structure, including tags.</p>
+  
+  <input type="text" id="componentPathInput" value="/Drivers/BacnetNetwork/MAU2/points/Inputs/ExFan8" placeholder="Enter component slot path">
+  <button onclick="inspectComponent()">Inspect Component</button>
+  <button onclick="copyToClipboard()" id="copyBtn" style="display:none;">Copy JSON</button>
+  <pre id="result">Enter a component path and click "Inspect Component"</pre>
+
+  <script type='text/javascript' src='/requirejs/config.js'></script>
+  <script type='text/javascript' src='/module/js/com/tridium/js/ext/require/require.min.js'></script>
+
+  <script>
+    /**
+     * Inspect Component Object
+     * 
+     * This utility helps to understand the structure of a Baja component (device or point).
+     * It resolves a given component path and displays its properties, methods, and tags.
+     */
+    
+    let lastResult = null;
+
+    window.inspectComponent = function() {
+      const componentPath = document.getElementById('componentPathInput').value.trim();
+      const resultDiv = document.getElementById('result');
+      const copyBtn = document.getElementById('copyBtn');
+      resultDiv.className = '';
+      resultDiv.textContent = 'Loading Baja...';
+      copyBtn.style.display = 'none';
+      lastResult = null;
+
+      if (!componentPath) {
+        resultDiv.className = 'error';
+        resultDiv.textContent = 'Please enter a component path.';
+        return;
+      }
+
+      if (typeof require !== 'undefined') {
+        require(["baja!", "Promise"], function (baja, Promise) {
+          runInspection(baja, componentPath);
+        }, function(err) {
+          resultDiv.className = 'error';
+          resultDiv.textContent = 'Error loading Baja: ' + (err.message || err);
+        });
+      } else {
+        resultDiv.className = 'error';
+        resultDiv.textContent = 'Error: RequireJS not available to load Baja.';
+      }
+    };
+
+    function runInspection(baja, componentPath) {
+      const resultDiv = document.getElementById('result');
+      const copyBtn = document.getElementById('copyBtn');
+      resultDiv.textContent = 'Resolving component: ' + componentPath + '...';
+
+      // Clean path
+      let cleanPath = componentPath.trim();
+      if (!cleanPath.startsWith('/')) {
+        cleanPath = '/' + cleanPath;
+      }
+      const ord = 'station:|slot:' + cleanPath;
+
+      // Add timeout to the resolution
+      new Promise(function(resolve, reject) {
+        const timeout = setTimeout(function() { 
+          reject(new Error('Component resolution timeout (60s)')); 
+        }, 60000);
+        
+        baja.Ord.make(ord).get().then(function(component) {
+          clearTimeout(timeout);
+          resolve(component);
+        }).catch(function(err) {
+          clearTimeout(timeout);
+          reject(err);
+        });
+      }).then(function(component) {
+        const objInfo = {
+          timestamp: new Date().toISOString(),
+          componentPath: componentPath,
+          ord: ord,
+          objectInfo: {
+            type: typeof component,
+            constructor: component.constructor ? component.constructor.name : 'N/A',
+            toString: component.toString ? component.toString() : 'N/A',
+            properties: {},
+            methods: [],
+            enumerableKeys: Object.keys(component)
+          },
+          componentString: component.toString ? component.toString() : 'N/A',
+          componentJSON: 'Cannot stringify component directly',
+          displayName: component.getDisplayName ? component.getDisplayName() : 'N/A',
+          name: component.getName ? component.getName() : 'N/A',
+          slotPath: component.getSlotPath ? component.getSlotPath() : 'N/A',
+          hasOutProperty: component.get && component.get('out') !== undefined,
+          outValue: (component.get && component.get('out')) ? component.get('out').toString() : 'N/A',
+          typeName: component.getType ? (component.getType().getName ? component.getType().getName() : component.getType().toString()) : 'N/A'
+        };
+
+        // Get common properties
+        if (component.getDisplayName) objInfo.objectInfo.properties['getDisplayName()'] = component.getDisplayName();
+        if (component.getName) objInfo.objectInfo.properties['getName()'] = component.getName();
+        if (component.getSlotPath) objInfo.objectInfo.properties['getSlotPath()'] = component.getSlotPath();
+        if (component.get) {
+          objInfo.objectInfo.properties['get("out")'] = component.get('out') ? component.get('out').toString() : 'N/A';
+        }
+        if (component.getType) {
+          const type = component.getType();
+          objInfo.objectInfo.properties['getType()'] = type.getName ? type.getName() : type.toString();
+        }
+
+        // Get methods (simple heuristic)
+        for (const key in component) {
+          if (typeof component[key] === 'function' && key.startsWith('get') && !key.includes('$')) {
+            objInfo.objectInfo.methods.push(key);
+          }
+        }
+
+        // Get tags
+        if (component.tags && typeof component.tags === 'function') {
+          objInfo.objectInfo.tags = {
+            type: 'object',
+            getAll: 'function exists'
+          };
+          return component.tags().then(function(tags) {
+            objInfo.objectInfo.tags.allTags = tags.getAll().map(function(tag) {
+              const tagId = tag.getId();
+              return {
+                id: tagId,
+                idString: typeof tagId === 'object' && tagId.$qname ? tagId.$qname : 
+                          (typeof tagId === 'string' ? tagId : JSON.stringify(tagId)),
+                idObject: tagId,
+                value: tag.getValue ? tag.getValue().toString() : '',
+                type: typeof tag
+              };
+            });
+            
+            // Check specifically for n:device tag
+            const deviceTag = objInfo.objectInfo.tags.allTags.find(function(t) {
+              const tId = t.id;
+              if (typeof tId === 'object' && tId.$qname) {
+                return tId.$qname === 'n:device';
+              } else if (typeof tId === 'string') {
+                return tId === 'n:device';
+              }
+              if (tId.$dict === 'n' && tId.$name === 'device') {
+                return true;
+              }
+              return false;
+            });
+            
+            objInfo.objectInfo.tags.hasNDeviceTag = !!deviceTag;
+            objInfo.objectInfo.tags.nDeviceTagInfo = deviceTag || null;
+            
+            return objInfo;
+          }).catch(function(err) {
+            objInfo.objectInfo.tags.error = 'Failed to retrieve tags: ' + (err.message || err);
+            return objInfo;
+          });
+        } else {
+          objInfo.objectInfo.tags = 'N/A (tags() method not found)';
+          return objInfo;
+        }
+      }).then(function(objInfo) {
+        lastResult = JSON.stringify(objInfo, null, 2);
+        resultDiv.className = 'success';
+        resultDiv.textContent = lastResult;
+        copyBtn.style.display = 'inline-block';
+        console.log('✅ Component inspection complete:', objInfo);
+        
+        // Also log tag info specifically
+        if (objInfo.objectInfo.tags && objInfo.objectInfo.tags.allTags) {
+          console.log('📋 All Tags:', objInfo.objectInfo.tags.allTags);
+          console.log('🏷️ Has n:device tag:', objInfo.objectInfo.tags.hasNDeviceTag);
+          if (objInfo.objectInfo.tags.nDeviceTagInfo) {
+            console.log('🏷️ n:device tag info:', objInfo.objectInfo.tags.nDeviceTagInfo);
+          }
+        }
+      }).catch(function(err) {
+        resultDiv.className = 'error';
+        resultDiv.textContent = '❌ Error inspecting component: ' + (err.message || err);
+        console.error('❌ Inspection Error:', err);
+      });
+    }
+
+    window.copyToClipboard = function() {
+      if (lastResult) {
+        navigator.clipboard.writeText(lastResult).then(function() {
+          alert('JSON copied to clipboard!');
+        }).catch(function(err) {
+          console.error('Failed to copy:', err);
+        });
+      }
+    };
+  </script>
+</body>
+</html>
+

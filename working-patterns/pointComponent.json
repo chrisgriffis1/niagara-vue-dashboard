@@ -1,0 +1,503 @@
+{
+    "timestamp": "2025-12-11T19:57:56.668Z",
+    "componentPath": "/Drivers/BacnetNetwork/MAU2/points/Inputs/ExFan8",
+    "ord": "station:|slot:/Drivers/BacnetNetwork/MAU2/points/Inputs/ExFan8",
+    "objectInfo": {
+      "type": "object",
+      "constructor": "t",
+      "toString": "active {ok}",
+      "properties": {
+        "getDisplayName()": "ExFan8",
+        "getName()": "ExFan8",
+        "getSlotPath()": {
+          "$scheme": {},
+          "$schemeName": "slot",
+          "$body": "/Drivers/BacnetNetwork/MAU2/points/Inputs/ExFan8",
+          "$isHost": false,
+          "$isSession": false,
+          "$abs": true,
+          "$names": [
+            "Drivers",
+            "BacnetNetwork",
+            "MAU2",
+            "points",
+            "Inputs",
+            "ExFan8"
+          ],
+          "$backupDepth": 0
+        },
+        "get(\"out\")": "true {ok}",
+        "getType()": "control:BooleanPoint"
+      },
+      "methods": [
+        "getType",
+        "getFacets1",
+        "getFacetsDisplay1",
+        "getProxyExt",
+        "getProxyExtDisplay",
+        "getOut",
+        "getOutDisplay",
+        "getFacets",
+        "getOutStatusValue",
+        "getStatusValue",
+        "getValueWithFacets",
+        "getStatus",
+        "getUniqueName",
+        "getComponentSpace",
+        "getHandle",
+        "getOrdInSession",
+        "getSlotPath",
+        "getNavOrd",
+        "getNavName",
+        "getNavTypeSpec",
+        "getNavDisplayName",
+        "getNavParent",
+        "getNavChildren",
+        "getIcon",
+        "getNavIcon",
+        "getNavDescription",
+        "getHandlers",
+        "getActionParameterDefault",
+        "getKnobCount",
+        "getKnobs",
+        "getRelationKnobCount",
+        "getRelationKnobs",
+        "getRelationKnob",
+        "getLinks",
+        "getPermissions",
+        "getAgents",
+        "getName",
+        "getDisplayName",
+        "getDisplay",
+        "getParent",
+        "getParentComponent",
+        "getPropertyInParent",
+        "getSlot",
+        "getSlots",
+        "getFlags",
+        "get",
+        "getValueOf",
+        "getTypeDisplayName"
+      ],
+      "enumerableKeys": [
+        "$map",
+        "$parent",
+        "$propInParent",
+        "$space",
+        "$handle",
+        "$bPropsLoaded",
+        "$subs",
+        "$lease",
+        "$leaseTicket",
+        "$knobs",
+        "$permissionsStr",
+        "$permissions",
+        "$nc",
+        "$muxed",
+        "$handlers",
+        "getType",
+        "getFacets1",
+        "getFacetsDisplay1",
+        "setFacets1",
+        "getProxyExt",
+        "getProxyExtDisplay",
+        "setProxyExt",
+        "execute",
+        "getOut",
+        "getOutDisplay",
+        "setOut",
+        "$subDf"
+      ],
+      "tags": {
+        "type": "object",
+        "getAll": "function exists",
+        "allTags": [
+          {
+            "id": {
+              "$dict": "h4",
+              "$name": "dis",
+              "$qname": "h4:dis"
+            },
+            "idString": "h4:dis",
+            "idObject": {
+              "$dict": "h4",
+              "$name": "dis",
+              "$qname": "h4:dis"
+            },
+            "value": "ExFan8",
+            "type": "object"
+          },
+          {
+            "id": {
+              "$dict": "h4",
+              "$name": "curVal",
+              "$qname": "h4:curVal"
+            },
+            "idString": "h4:curVal",
+            "idObject": {
+              "$dict": "h4",
+              "$name": "curVal",
+              "$qname": "h4:curVal"
+            },
+            "value": "true",
+            "type": "object"
+          },
+          {
+            "id": {
+              "$dict": "n",
+              "$name": "alarmablePoint",
+              "$qname": "n:alarmablePoint"
+            },
+            "idString": "n:alarmablePoint",
+            "idObject": {
+              "$dict": "n",
+              "$name": "alarmablePoint",
+              "$qname": "n:alarmablePoint"
+            },
+            "value": "Marker",
+            "type": "object"
+          },
+          {
+            "id": {
+              "$dict": "h4",
+              "$name": "his",
+              "$qname": "h4:his"
+            },
+            "idString": "h4:his",
+            "idObject": {
+              "$dict": "h4",
+              "$name": "his",
+              "$qname": "h4:his"
+            },
+            "value": "Marker",
+            "type": "object"
+          },
+          {
+            "id": {
+              "$dict": "h4",
+              "$name": "hisMode",
+              "$qname": "h4:hisMode"
+            },
+            "idString": "h4:hisMode",
+            "idObject": {
+              "$dict": "h4",
+              "$name": "hisMode",
+              "$qname": "h4:hisMode"
+            },
+            "value": "cov",
+            "type": "object"
+          },
+          {
+            "id": {
+              "$dict": "n",
+              "$name": "input",
+              "$qname": "n:input"
+            },
+            "idString": "n:input",
+            "idObject": {
+              "$dict": "n",
+              "$name": "input",
+              "$qname": "n:input"
+            },
+            "value": "Marker",
+            "type": "object"
+          },
+          {
+            "id": {
+              "$dict": "n",
+              "$name": "station",
+              "$qname": "n:station"
+            },
+            "idString": "n:station",
+            "idObject": {
+              "$dict": "n",
+              "$name": "station",
+              "$qname": "n:station"
+            },
+            "value": "MJHOptimizer1",
+            "type": "object"
+          },
+          {
+            "id": {
+              "$dict": "n",
+              "$name": "name",
+              "$qname": "n:name"
+            },
+            "idString": "n:name",
+            "idObject": {
+              "$dict": "n",
+              "$name": "name",
+              "$qname": "n:name"
+            },
+            "value": "ExFan8",
+            "type": "object"
+          },
+          {
+            "id": {
+              "$dict": "h4",
+              "$name": "id",
+              "$qname": "h4:id"
+            },
+            "idString": "h4:id",
+            "idObject": {
+              "$dict": "h4",
+              "$name": "id",
+              "$qname": "h4:id"
+            },
+            "value": "nspace:MJHOptimizer1~slot:.Drivers.BacnetNetwork.MAU2.points.Inputs.ExFan8",
+            "type": "object"
+          },
+          {
+            "id": {
+              "$dict": "h4",
+              "$name": "curErr",
+              "$qname": "h4:curErr"
+            },
+            "idString": "h4:curErr",
+            "idObject": {
+              "$dict": "h4",
+              "$name": "curErr",
+              "$qname": "h4:curErr"
+            },
+            "value": "",
+            "type": "object"
+          },
+          {
+            "id": {
+              "$dict": "h4",
+              "$name": "hisErr",
+              "$qname": "h4:hisErr"
+            },
+            "idString": "h4:hisErr",
+            "idObject": {
+              "$dict": "h4",
+              "$name": "hisErr",
+              "$qname": "h4:hisErr"
+            },
+            "value": "",
+            "type": "object"
+          },
+          {
+            "id": {
+              "$dict": "h4",
+              "$name": "hisStatus",
+              "$qname": "h4:hisStatus"
+            },
+            "idString": "h4:hisStatus",
+            "idObject": {
+              "$dict": "h4",
+              "$name": "hisStatus",
+              "$qname": "h4:hisStatus"
+            },
+            "value": "ok",
+            "type": "object"
+          },
+          {
+            "id": {
+              "$dict": "n",
+              "$name": "displayName",
+              "$qname": "n:displayName"
+            },
+            "idString": "n:displayName",
+            "idObject": {
+              "$dict": "n",
+              "$name": "displayName",
+              "$qname": "n:displayName"
+            },
+            "value": "ExFan8",
+            "type": "object"
+          },
+          {
+            "id": {
+              "$dict": "h4",
+              "$name": "cur",
+              "$qname": "h4:cur"
+            },
+            "idString": "h4:cur",
+            "idObject": {
+              "$dict": "h4",
+              "$name": "cur",
+              "$qname": "h4:cur"
+            },
+            "value": "Marker",
+            "type": "object"
+          },
+          {
+            "id": {
+              "$dict": "n",
+              "$name": "history",
+              "$qname": "n:history"
+            },
+            "idString": "n:history",
+            "idObject": {
+              "$dict": "n",
+              "$name": "history",
+              "$qname": "n:history"
+            },
+            "value": "/MJHOptimizer1/MAU2_ExFan8",
+            "type": "object"
+          },
+          {
+            "id": {
+              "$dict": "n",
+              "$name": "type",
+              "$qname": "n:type"
+            },
+            "idString": "n:type",
+            "idObject": {
+              "$dict": "n",
+              "$name": "type",
+              "$qname": "n:type"
+            },
+            "value": "control:BooleanPoint",
+            "type": "object"
+          },
+          {
+            "id": {
+              "$dict": "h4",
+              "$name": "kind",
+              "$qname": "h4:kind"
+            },
+            "idString": "h4:kind",
+            "idObject": {
+              "$dict": "h4",
+              "$name": "kind",
+              "$qname": "h4:kind"
+            },
+            "value": "Bool",
+            "type": "object"
+          },
+          {
+            "id": {
+              "$dict": "h4",
+              "$name": "point",
+              "$qname": "h4:point"
+            },
+            "idString": "h4:point",
+            "idObject": {
+              "$dict": "h4",
+              "$name": "point",
+              "$qname": "h4:point"
+            },
+            "value": "Marker",
+            "type": "object"
+          },
+          {
+            "id": {
+              "$dict": "h4",
+              "$name": "tz",
+              "$qname": "h4:tz"
+            },
+            "idString": "h4:tz",
+            "idObject": {
+              "$dict": "h4",
+              "$name": "tz",
+              "$qname": "h4:tz"
+            },
+            "value": "Chicago",
+            "type": "object"
+          },
+          {
+            "id": {
+              "$dict": "n",
+              "$name": "point",
+              "$qname": "n:point"
+            },
+            "idString": "n:point",
+            "idObject": {
+              "$dict": "n",
+              "$name": "point",
+              "$qname": "n:point"
+            },
+            "value": "Marker",
+            "type": "object"
+          },
+          {
+            "id": {
+              "$dict": "h4",
+              "$name": "curStatus",
+              "$qname": "h4:curStatus"
+            },
+            "idString": "h4:curStatus",
+            "idObject": {
+              "$dict": "h4",
+              "$name": "curStatus",
+              "$qname": "h4:curStatus"
+            },
+            "value": "ok",
+            "type": "object"
+          },
+          {
+            "id": {
+              "$dict": "n",
+              "$name": "ordInSession",
+              "$qname": "n:ordInSession"
+            },
+            "idString": "n:ordInSession",
+            "idObject": {
+              "$dict": "n",
+              "$name": "ordInSession",
+              "$qname": "n:ordInSession"
+            },
+            "value": "station:|h:9c9f69a",
+            "type": "object"
+          },
+          {
+            "id": {
+              "$dict": "n",
+              "$name": "device",
+              "$qname": "n:device"
+            },
+            "idString": "n:device",
+            "idObject": {
+              "$dict": "n",
+              "$name": "device",
+              "$qname": "n:device"
+            },
+            "value": "Marker",
+            "type": "object"
+          }
+        ],
+        "hasNDeviceTag": true,
+        "nDeviceTagInfo": {
+          "id": {
+            "$dict": "n",
+            "$name": "device",
+            "$qname": "n:device"
+          },
+          "idString": "n:device",
+          "idObject": {
+            "$dict": "n",
+            "$name": "device",
+            "$qname": "n:device"
+          },
+          "value": "Marker",
+          "type": "object"
+        }
+      }
+    },
+    "componentString": "active {ok}",
+    "componentJSON": "Cannot stringify component directly",
+    "displayName": "ExFan8",
+    "name": "ExFan8",
+    "slotPath": {
+      "$scheme": {},
+      "$schemeName": "slot",
+      "$body": "/Drivers/BacnetNetwork/MAU2/points/Inputs/ExFan8",
+      "$isHost": false,
+      "$isSession": false,
+      "$abs": true,
+      "$names": [
+        "Drivers",
+        "BacnetNetwork",
+        "MAU2",
+        "points",
+        "Inputs",
+        "ExFan8"
+      ],
+      "$backupDepth": 0
+    },
+    "hasOutProperty": true,
+    "outValue": "true {ok}",
+    "typeName": "control:BooleanPoint"
+  }

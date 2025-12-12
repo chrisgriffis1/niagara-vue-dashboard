@@ -14,13 +14,29 @@ class NiagaraBQLAdapter {
     this.equipmentPointsMap = new Map();
     this.initialized = false;
     this.subscribers = [];
+    this.subscribedPoints = new Map(); // Map of equipmentId -> subscribed point component
+    this.subscriber = null; // Main subscriber for live updates
+  }
+
+  /**
+   * Get baja global (checks both global scope and window.baja)
+   */
+  _getBaja() {
+    if (typeof baja !== 'undefined' && baja) {
+      return baja
+    }
+    if (typeof window !== 'undefined' && typeof window.baja !== 'undefined' && window.baja) {
+      return window.baja
+    }
+    return null
   }
 
   /**
    * Check if running in Niagara environment
    */
   _isNiagara() {
-    return typeof baja !== 'undefined' && baja.Ord;
+    const bajaGlobal = this._getBaja()
+    return bajaGlobal && bajaGlobal.Ord
   }
 
   /**
@@ -39,8 +55,13 @@ class NiagaraBQLAdapter {
     
     try {
       // Discover all equipment and points
+      console.log('📡 Step 1/2: Discovering equipment...');
       await this._discoverAllEquipment();
+      console.log(`✓ Found ${this.equipment.length} equipment items`);
+      
+      console.log('📡 Step 2/2: Discovering points...');
       await this._discoverAllPoints();
+      console.log(`✓ Found ${this.points.length} points`);
       
       // Build lookup maps
       this.points.forEach(point => {
@@ -48,6 +69,11 @@ class NiagaraBQLAdapter {
       });
       
       this._buildEquipmentPointMapping();
+      
+      // Start live subscriptions for equipment status (non-blocking)
+      this._startLiveSubscriptions().catch(err => {
+        console.warn('⚠️ Live subscriptions failed:', err)
+      })
       
       this.initialized = true;
       
@@ -67,54 +93,104 @@ class NiagaraBQLAdapter {
    * @private
    */
   async _discoverAllEquipment() {
+    const baja = this._getBaja()
+    if (!baja) {
+      throw new Error('baja not available')
+    }
+    
+    console.log('🔍 Querying equipment via BQL...');
     const bql = "station:|slot:/Drivers/BacnetNetwork|bql:select slotPath, displayName, name from bacnet:BacnetDevice";
+    console.log('📝 BQL:', bql);
     
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
-        reject(new Error('Equipment discovery timeout'));
+        reject(new Error('Equipment discovery timeout (30s)'));
       }, 30000);
       
+      console.log('⏳ Waiting for BQL response...');
       baja.Ord.make(bql).get().then(table => {
         clearTimeout(timeout);
         this.equipment = [];
         
-        table.cursor({
-          limit: 1000,
-          each: (record) => {
-            try {
-              const slotPath = record.get('slotPath')?.toString() || '';
-              const displayName = record.get('displayName')?.toString() || '';
-              const name = record.get('name')?.toString() || '';
-              
-              if (!slotPath) return;
-              
-              // Extract equipment ID from slotPath
-              const pathParts = slotPath.split('/');
-              const equipId = pathParts[pathParts.length - 1] || slotPath;
-              
-              // Infer equipment type from name/displayName
-              const friendlyType = this._inferEquipmentType(name || displayName);
-              
-              // Extract location from name (e.g., "HP21 300 Link Hall" → "300 Link Hall")
-              const location = this._extractLocation(name || displayName);
-              
-              this.equipment.push({
-                id: equipId,
-                name: displayName || name || equipId,
-                type: friendlyType,
-                location: location,
-                ord: slotPath,
-                slotPath: slotPath
-              });
-            } catch (e) {
-              console.warn('Error processing equipment record:', e);
-            }
-          },
-          done: () => {
-            console.log(`✓ Discovered ${this.equipment.length} equipment`);
-            resolve();
+        console.log('✓ BQL query completed, processing results...');
+        console.log('📊 Table type:', typeof table);
+        console.log('📊 Table cursor type:', typeof table.cursor);
+        
+        let count = 0;
+        let cursorStarted = false;
+        
+        // Add a timeout to detect if cursor never starts
+        const cursorTimeout = setTimeout(() => {
+          if (!cursorStarted) {
+            console.error('❌ Cursor never started - timeout after 5 seconds');
+            reject(new Error('Cursor processing timeout - cursor never started'));
           }
-        });
+        }, 5000);
+        
+        try {
+          console.log('📊 Starting cursor iteration...');
+          const self = this; // Save reference for use in callbacks
+          table.cursor({
+            limit: 1000,
+            each: function(record) {
+              cursorStarted = true;
+              clearTimeout(cursorTimeout);
+              count++;
+              if (count === 1) {
+                console.log(`  ✓ Processing first equipment record...`);
+              }
+              if (count % 50 === 0) {
+                console.log(`  Processing equipment ${count}...`);
+              }
+              try {
+                const slotPath = record.get('slotPath')?.toString() || '';
+                const displayName = record.get('displayName')?.toString() || '';
+                const name = record.get('name')?.toString() || '';
+                
+                if (!slotPath) {
+                  console.warn(`  Skipping record ${count} - no slotPath`);
+                  return;
+                }
+                
+                // Extract equipment ID from slotPath
+                const pathParts = slotPath.split('/');
+                const equipId = pathParts[pathParts.length - 1] || slotPath;
+                
+                // Infer equipment type from name/displayName
+                const friendlyType = self._inferEquipmentType(name || displayName);
+                
+                // Extract location from name (e.g., "HP21 300 Link Hall" → "300 Link Hall")
+                const location = self._extractLocation(name || displayName);
+                
+                self.equipment.push({
+                  id: equipId,
+                  name: displayName || name || equipId,
+                  type: friendlyType,
+                  location: location,
+                  ord: slotPath,
+                  slotPath: slotPath
+                });
+                
+                if (count === 1) {
+                  console.log(`  ✓ First equipment processed: ${equipId}`);
+                }
+              } catch (e) {
+                console.error(`  ❌ Error processing equipment record ${count}:`, e);
+                console.error('  Error stack:', e.stack);
+              }
+            },
+            after: function() {
+              clearTimeout(cursorTimeout);
+              console.log(`✓ Equipment discovery complete: ${self.equipment.length} items processed`);
+              resolve();
+            }
+          });
+          console.log('📊 Cursor call completed, waiting for callbacks...');
+        } catch (cursorError) {
+          clearTimeout(cursorTimeout);
+          console.error('❌ Error calling cursor:', cursorError);
+          reject(cursorError);
+        }
       }).catch(err => {
         clearTimeout(timeout);
         reject(err);
@@ -134,19 +210,41 @@ class NiagaraBQLAdapter {
         reject(new Error('Point discovery timeout'));
       }, 60000);
       
+      const baja = this._getBaja()
+      if (!baja) {
+        clearTimeout(timeout)
+        reject(new Error('baja not available'))
+        return
+      }
+      
+      const self = this; // Save reference for use in callbacks
       baja.Ord.make(bql).get().then(table => {
         clearTimeout(timeout);
-        this.points = [];
+        self.points = [];
+        
+        console.log('✓ BQL query completed, processing results...');
+        console.log('📊 Starting cursor iteration...');
+        let pointCount = 0;
         
         table.cursor({
           limit: 10000,
-          each: (record) => {
+          each: function(record) {
+            pointCount++;
+            if (pointCount === 1) {
+              console.log(`  Processing first point record...`);
+            }
+            if (pointCount % 500 === 0) {
+              console.log(`  Processing point ${pointCount}...`);
+            }
             try {
               const slotPath = record.get('slotPath')?.toString() || '';
               const displayName = record.get('displayName')?.toString() || '';
               const name = record.get('name')?.toString() || '';
               
-              if (!slotPath) return;
+              if (!slotPath) {
+                console.warn(`  Skipping point ${pointCount} - no slotPath`);
+                return;
+              }
               
               // Get point value and status
               let outValue = null;
@@ -191,9 +289,9 @@ class NiagaraBQLAdapter {
               const pointId = `${equipId}_${name || displayName}`;
               
               // Determine point type
-              const pointType = this._inferPointType(name || displayName);
+              const pointType = self._inferPointType(name || displayName);
               
-              this.points.push({
+              self.points.push({
                 id: pointId,
                 name: displayName || name || 'Unknown',
                 type: pointType,
@@ -203,14 +301,18 @@ class NiagaraBQLAdapter {
                 ord: slotPath,
                 slotPath: slotPath,
                 equipmentId: equipId,
-                trendable: this._isTrendable(pointType)
+                trendable: self._isTrendable(pointType)
               });
+              
+              if (pointCount === 1) {
+                console.log(`  ✓ First point processed: ${pointId}`);
+              }
             } catch (e) {
-              console.warn('Error processing point record:', e);
+              console.warn(`Error processing point record ${pointCount}:`, e);
             }
           },
-          done: () => {
-            console.log(`✓ Discovered ${this.points.length} points`);
+          after: function() {
+            console.log(`✓ Point discovery complete: ${self.points.length} points processed`);
             resolve();
           }
         });
@@ -318,7 +420,7 @@ class NiagaraBQLAdapter {
       location: equip.location,
       ord: equip.ord,
       pointCount: this.equipmentPointsMap.get(equip.id)?.length || 0,
-      status: 'ok' // TODO: Check actual alarm status
+      status: equip.status || 'ok' // Status from live subscription or default
     }));
   }
 
@@ -373,6 +475,10 @@ class NiagaraBQLAdapter {
 
     // Try to get live value
     try {
+      const baja = this._getBaja()
+      if (!baja) {
+        throw new Error('baja not available')
+      }
       const component = await baja.Ord.make(point.slotPath).get();
       const outVal = component.get('out');
       if (outVal) {
@@ -429,10 +535,24 @@ class NiagaraBQLAdapter {
    * @private
    */
   async _findHistoryId(point) {
+    const baja = this._getBaja()
+    if (!baja) {
+      throw new Error('baja not available')
+    }
+    
     try {
+      // Clean slotPath - remove "slot:" prefix if present
+      let cleanSlotPath = point.slotPath.toString().trim().replace(/^slot:/, '');
+      if (!cleanSlotPath.startsWith('/')) {
+        cleanSlotPath = '/' + cleanSlotPath;
+      }
+      
+      // Construct correct ORD format: station:|slot:/path
+      const pointOrd = 'station:|slot:' + cleanSlotPath;
+      
       // Try to find history config for this point
       // History configs are typically at: pointPath/history
-      const pointComponent = await baja.Ord.make(point.slotPath).get();
+      const pointComponent = await baja.Ord.make(pointOrd).get();
       const historySlot = pointComponent.getSlots().slotName(/^history$/i).first();
       
       if (historySlot) {
@@ -446,12 +566,142 @@ class NiagaraBQLAdapter {
       }
       
       // Fallback: construct history ID from slotPath
-      // Remove "slot:" prefix and use as history ID
-      const historyPath = point.slotPath.replace(/^slot:/, '');
-      return historyPath;
+      // Use clean path without "slot:" prefix
+      return cleanSlotPath;
     } catch (e) {
       console.warn(`Could not find history ID for ${point.id}:`, e);
       return null;
+    }
+  }
+
+  /**
+   * Start live subscriptions for equipment status monitoring
+   * Subscribes to key points (like online/offline status) for each equipment
+   * @private
+   */
+  async _startLiveSubscriptions() {
+    const baja = this._getBaja()
+    if (!baja || !baja.Subscriber) {
+      console.warn('⚠️ Cannot start live subscriptions - Subscriber not available')
+      return
+    }
+    
+    console.log(`🔔 Starting live subscriptions for ${this.equipment.length} equipment...`)
+    
+    try {
+      // Create subscriber for live updates
+      const subscriber = new baja.Subscriber()
+      this.subscriber = subscriber
+      
+      // Subscribe to a sample of points from each equipment for status monitoring
+      // Limit to first 20 equipment to avoid overwhelming the system
+      const equipmentToMonitor = this.equipment.slice(0, 20)
+      const subscriptionPromises = []
+      
+      console.log(`  📊 Will monitor ${equipmentToMonitor.length} equipment`)
+      
+      for (const equip of equipmentToMonitor) {
+        const points = this.equipmentPointsMap.get(equip.id) || []
+        if (points.length === 0) {
+          console.log(`  ⚠️ No points found for equipment: ${equip.id}`)
+          continue
+        }
+        
+        // Find status-related points (online, fault, alarm, etc.)
+        const statusPoints = points.filter(p => {
+          const name = (p.name || '').toLowerCase()
+          return name.includes('online') || name.includes('fault') || 
+                 name.includes('alarm') || name.includes('status')
+        })
+        
+        // Subscribe to first status point found, or first point if none found
+        const pointToSubscribe = statusPoints[0] || points[0]
+        if (!pointToSubscribe || !pointToSubscribe.slotPath) {
+          console.log(`  ⚠️ No valid point to subscribe for equipment: ${equip.id}`)
+          continue
+        }
+        
+        // Create subscription promise
+        const subscriptionPromise = (async () => {
+          try {
+            let cleanSlotPath = pointToSubscribe.slotPath.toString().trim().replace(/^slot:/, '')
+            if (!cleanSlotPath.startsWith('/')) {
+              cleanSlotPath = '/' + cleanSlotPath
+            }
+            const pointOrd = 'station:|slot:' + cleanSlotPath
+            
+            console.log(`  🔌 Subscribing to ${pointToSubscribe.name} for ${equip.name}...`)
+            
+            // Subscribe to point
+            const pointComponent = await baja.Ord.make(pointOrd).get({ subscriber: subscriber })
+            this.subscribedPoints.set(equip.id, pointComponent)
+            
+            // Find the equipment object in the array by id
+            const equipIndex = this.equipment.findIndex(e => e.id === equip.id)
+            if (equipIndex === -1) {
+              console.warn(`  ⚠️ Equipment not found in array: ${equip.id}`)
+              return
+            }
+            
+            const equipRef = this.equipment[equipIndex]
+            
+            // Update equipment status based on point value
+            const updateStatus = () => {
+              try {
+                const out = pointComponent.get('out')
+                if (out) {
+                  const valueStr = out.toString().toLowerCase()
+                  // Check for offline/fault indicators
+                  if (valueStr.includes('offline') || valueStr.includes('fault') || 
+                      valueStr.includes('alarm') || valueStr === 'false' || valueStr === '0') {
+                    equipRef.status = 'error'
+                  } else if (valueStr.includes('warning')) {
+                    equipRef.status = 'warning'
+                  } else {
+                    equipRef.status = 'ok'
+                  }
+                  console.log(`  ✓ Status for ${equipRef.name}: ${equipRef.status} (value: ${valueStr})`)
+                }
+              } catch (e) {
+                console.warn(`  ❌ Error updating status for ${equip.id}:`, e)
+              }
+            }
+            
+            // Initial status check
+            updateStatus()
+            
+            // Listen for changes using regular function to preserve 'this' context
+            const self = this
+            subscriber.attach('changed', function(prop) {
+              // 'this' in the callback refers to the component that changed
+              if (prop && prop.getName && prop.getName() === 'out') {
+                // Check if this is the point we're monitoring
+                const navOrd = this.getNavOrd ? this.getNavOrd().toString() : ''
+                if (navOrd.includes(cleanSlotPath)) {
+                  console.log(`  🔄 Live update for ${equipRef.name}`)
+                  updateStatus()
+                }
+              }
+            })
+            
+            console.log(`  ✓ Subscribed to ${equip.name}`)
+            return equip.id
+          } catch (err) {
+            console.warn(`  ❌ Failed to subscribe to point for ${equip.id}:`, err)
+            return null
+          }
+        })()
+        
+        subscriptionPromises.push(subscriptionPromise)
+      }
+      
+      // Wait for all subscriptions to complete
+      const results = await Promise.all(subscriptionPromises)
+      const successCount = results.filter(r => r !== null).length
+      
+      console.log(`✓ Started live subscriptions for ${successCount} equipment`)
+    } catch (error) {
+      console.warn('⚠️ Failed to start live subscriptions:', error)
     }
   }
 
@@ -460,6 +710,11 @@ class NiagaraBQLAdapter {
    * @private
    */
   async _queryHistory(historyId, startDate, endDate) {
+    const baja = this._getBaja()
+    if (!baja) {
+      throw new Error('baja not available')
+    }
+    
     try {
       // Format history ID for history: scheme
       let historyOrd = historyId;
@@ -479,8 +734,9 @@ class NiagaraBQLAdapter {
       const endMillis = endDate.getTime();
 
       return new Promise((resolve, reject) => {
+        const self = this;
         history.cursor({
-          each: (record) => {
+          each: function(record) {
             try {
               const ts = record.get('timestamp');
               const tsMillis = ts.getMillis();
@@ -505,7 +761,7 @@ class NiagaraBQLAdapter {
               // Skip invalid records
             }
           },
-          done: () => {
+          after: function() {
             // Sort by timestamp
             dataPoints.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
             resolve(dataPoints);

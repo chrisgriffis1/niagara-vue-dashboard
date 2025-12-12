@@ -1,0 +1,287 @@
+<!-- @noSnoop -->
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Inspect Device Object Structure</title>
+  <style>
+    body { font-family: Arial; background: #1e1e1e; color: #fff; padding: 20px; }
+    input { background: #2d2d2d; color: #fff; border: 1px solid #555; padding: 8px; width: 400px; margin: 5px; }
+    button { background: #4CAF50; color: white; border: none; padding: 10px 20px; cursor: pointer; margin: 5px; }
+    button.copy { background: #2196F3; }
+    #result { background: #2d2d2d; padding: 15px; border-radius: 4px; margin-top: 10px; font-family: monospace; white-space: pre-wrap; word-wrap: break-word; max-height: 600px; overflow-y: auto; }
+    .label { color: #888; font-size: 12px; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <h1>Inspect Device Object Structure</h1>
+  <p>Enter a device path and inspect the full object structure returned by Baja.</p>
+  
+  <div>
+    <label class="label">Device Path (e.g., /Drivers/BacnetNetwork/MTIII_AHU_2284):</label><br>
+    <input type="text" id="devicePath" value="/Drivers/BacnetNetwork/MTIII_AHU_2284" placeholder="/Drivers/BacnetNetwork/DeviceName">
+    <button onclick="inspectDevice()">Inspect Device</button>
+  </div>
+  
+  <div id="result">Enter a device path and click "Inspect Device"</div>
+  <button id="copyBtn" onclick="copyToClipboard()" class="copy" style="display:none;">Copy JSON to Clipboard</button>
+
+  <script type='text/javascript' src='/requirejs/config.js'></script>
+  <script type='text/javascript' src='/module/js/com/tridium/js/ext/require/require.min.js'></script>
+
+  <script>
+    let lastResult = null;
+    
+    window.inspectDevice = function() {
+      const resultDiv = document.getElementById('result');
+      const devicePath = document.getElementById('devicePath').value.trim();
+      
+      if (!devicePath) {
+        resultDiv.textContent = 'Please enter a device path';
+        return;
+      }
+      
+      resultDiv.textContent = 'Loading Baja...';
+      
+      if (typeof require !== 'undefined') {
+        require(["baja!", "Promise"], function (baja, Promise) {
+          inspectDeviceObject(baja, devicePath);
+        }, function(err) {
+          resultDiv.textContent = 'Error loading Baja: ' + (err.message || err);
+        });
+      } else {
+        var attempts = 0;
+        var checkBaja = setInterval(function() {
+          attempts++;
+          if (typeof baja !== 'undefined') {
+            clearInterval(checkBaja);
+            inspectDeviceObject(baja, devicePath);
+          } else if (attempts > 20) {
+            clearInterval(checkBaja);
+            resultDiv.textContent = 'Error: Baja not available';
+          }
+        }, 500);
+      }
+    };
+    
+    function inspectDeviceObject(baja, devicePath) {
+      const resultDiv = document.getElementById('result');
+      resultDiv.textContent = 'Resolving device: ' + devicePath + '...';
+      
+      // Clean path
+      let cleanPath = devicePath.trim();
+      if (!cleanPath.startsWith('/')) {
+        cleanPath = '/' + cleanPath;
+      }
+      
+      const deviceOrd = 'station:|slot:' + cleanPath;
+      
+      console.log('Resolving ORD:', deviceOrd);
+      
+      // Add timeout
+      new Promise(function(resolve, reject) {
+        const timeout = setTimeout(function() { 
+          reject(new Error('Timeout (30s)')); 
+        }, 30000);
+        
+        baja.Ord.make(deviceOrd).get().then(function(component) {
+          clearTimeout(timeout);
+          resolve(component);
+        }).catch(function(err) {
+          clearTimeout(timeout);
+          reject(err);
+        });
+      }).then(function(component) {
+        console.log('Component resolved:', component);
+        
+        // Try to get all properties and methods
+        const objInfo = {
+          type: typeof component,
+          constructor: component.constructor ? component.constructor.name : 'unknown',
+          toString: component.toString ? component.toString() : String(component),
+          // Try to enumerate properties
+          properties: {},
+          methods: []
+        };
+        
+        // Try to get common properties
+        const commonProps = [
+          'name', 'displayName', 'slotPath', 'ord', 'typeName', 
+          'out', 'status', 'getDisplayName', 'getName', 'getOrd', 
+          'getSlotPath', 'getTypeName', 'get', 'getTags'
+        ];
+        
+        commonProps.forEach(function(prop) {
+          try {
+            if (component[prop] !== undefined) {
+              const value = component[prop];
+              if (typeof value === 'function') {
+                objInfo.methods.push(prop);
+                // Try calling it if it's a getter
+                if (prop.startsWith('get') && prop.length > 3) {
+                  try {
+                    const result = component[prop]();
+                    objInfo.properties[prop + '()'] = result !== undefined ? String(result) : 'undefined';
+                  } catch(e) {
+                    objInfo.properties[prop + '()'] = 'Error: ' + e.message;
+                  }
+                }
+              } else {
+                objInfo.properties[prop] = value !== undefined ? String(value) : 'undefined';
+              }
+            }
+          } catch(e) {
+            // Skip
+          }
+        });
+        
+        // Try to enumerate all properties (if possible)
+        try {
+          const keys = Object.keys(component);
+          objInfo.enumerableKeys = keys;
+        } catch(e) {
+          objInfo.enumerableKeys = 'Cannot enumerate';
+        }
+        
+        // Try to get tags
+        if (component.tags && typeof component.tags === 'function') {
+          resultDiv.textContent = 'Getting tags...';
+          component.tags().then(function(tags) {
+            objInfo.tags = {
+              type: typeof tags,
+              getAll: tags.getAll ? 'function exists' : 'not available'
+            };
+            
+            if (tags.getAll) {
+              try {
+                const allTags = tags.getAll();
+                objInfo.tags.allTags = allTags.map(function(tag) {
+                  return {
+                    id: tag.getId ? tag.getId() : 'unknown',
+                    value: tag.getValue ? tag.getValue().toString() : 'unknown',
+                    type: typeof tag
+                  };
+                });
+              } catch(e) {
+                objInfo.tags.error = e.message;
+              }
+            }
+            
+            displayResult(objInfo, component);
+          }).catch(function(err) {
+            objInfo.tagsError = err.message || String(err);
+            displayResult(objInfo, component);
+          });
+        } else {
+          displayResult(objInfo, component);
+        }
+        
+      }).catch(function(err) {
+        const errorInfo = {
+          error: true,
+          message: err.message || String(err),
+          name: err.name || 'Unknown',
+          stack: err.stack || 'No stack trace',
+          fullError: err
+        };
+        
+        resultDiv.textContent = JSON.stringify(errorInfo, null, 2);
+        lastResult = errorInfo;
+        document.getElementById('copyBtn').style.display = 'inline-block';
+      });
+    }
+    
+    function displayResult(objInfo, component) {
+      const resultDiv = document.getElementById('result');
+      
+      // Create a comprehensive object to display
+      const displayObj = {
+        timestamp: new Date().toISOString(),
+        devicePath: document.getElementById('devicePath').value,
+        objectInfo: objInfo,
+        // Try to stringify the component itself (might not work, but worth trying)
+        componentString: component.toString ? component.toString() : String(component),
+        // Try JSON.stringify on the component (will likely fail, but shows what we can get)
+        componentJSON: 'Cannot stringify component directly'
+      };
+      
+      // Try to get more info by calling methods
+      try {
+        if (component.getDisplayName) {
+          displayObj.displayName = component.getDisplayName();
+        }
+        if (component.getName) {
+          displayObj.name = component.getName();
+        }
+        if (component.getOrd) {
+          displayObj.ord = component.getOrd().toString();
+        }
+        if (component.getSlotPath) {
+          displayObj.slotPath = component.getSlotPath().toString();
+        }
+        if (component.getTypeName) {
+          displayObj.typeName = component.getTypeName().toString();
+        }
+      } catch(e) {
+        displayObj.methodCallErrors = e.message;
+      }
+      
+      // Try to get 'out' property (points have this, devices might not)
+      try {
+        const out = component.get('out');
+        displayObj.hasOutProperty = out !== undefined;
+        if (out !== undefined) {
+          displayObj.outValue = String(out);
+        }
+      } catch(e) {
+        displayObj.outPropertyError = e.message;
+      }
+      
+      const jsonStr = JSON.stringify(displayObj, null, 2);
+      resultDiv.textContent = jsonStr;
+      lastResult = displayObj;
+      document.getElementById('copyBtn').style.display = 'inline-block';
+      
+      console.log('Full object info:', displayObj);
+    }
+    
+    window.copyToClipboard = function() {
+      if (!lastResult) {
+        alert('No result to copy');
+        return;
+      }
+      
+      const jsonStr = JSON.stringify(lastResult, null, 2);
+      
+      // Copy to clipboard
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(jsonStr).then(function() {
+          alert('Copied to clipboard!');
+        }).catch(function(err) {
+          // Fallback
+          copyFallback(jsonStr);
+        });
+      } else {
+        copyFallback(jsonStr);
+      }
+    };
+    
+    function copyFallback(text) {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      try {
+        document.execCommand('copy');
+        alert('Copied to clipboard!');
+      } catch(e) {
+        alert('Failed to copy. Please select and copy manually.');
+      }
+      document.body.removeChild(textarea);
+    }
+  </script>
+</body>
+</html>
+

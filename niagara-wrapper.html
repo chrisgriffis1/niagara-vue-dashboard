@@ -1,0 +1,54 @@
+<!-- @noSnoop -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Niagara Vue Dashboard</title>
+  
+  <!-- Load BajaScript if available (for Niagara environment) -->
+  <script type='text/javascript' src='/requirejs/config.js' onerror="window.requirejsConfigFailed = true;"></script>
+  <script type='text/javascript' src='/module/js/com/tridium/js/ext/require/require.min.js' onerror="window.requirejsFailed = true;"></script>
+  
+  <!-- Load Vue app assets with proper paths -->
+  <link rel="stylesheet" href="./assets/index.Dfst_qkQ.css">
+</head>
+<body>
+  <div id="app"></div>
+  
+  <!-- Load Vue app -->
+  <script type="module">
+    // Check if we're in Niagara environment
+    if (typeof baja === 'undefined') {
+      // Wait a moment for BajaScript to load
+      setTimeout(() => {
+        if (typeof baja === 'undefined') {
+          console.warn('⚠️ BajaScript not found - running in development mode');
+        }
+        loadVueApp();
+      }, 500);
+    } else {
+      loadVueApp();
+    }
+    
+    function loadVueApp() {
+      const script = document.createElement('script');
+      script.type = 'module';
+      script.src = './assets/index.DEa93ZqG.js';
+      script.onerror = function() {
+        console.error('Failed to load Vue app. Make sure you access via HTTP, not Workbench viewer.');
+        document.getElementById('app').innerHTML = `
+          <div style="padding: 40px; text-align: center; color: #fff; background: #1a1a1a; min-height: 100vh;">
+            <h1 style="color: #f44336;">⚠️ Access Error</h1>
+            <p>Please access this dashboard via HTTP, not through Workbench's HTML viewer.</p>
+            <p style="margin-top: 20px;">Use: <code style="background: #2a2a2a; padding: 10px; border-radius: 4px;">http://192.168.0.217/file/web1/niagara-wrapper.html</code></p>
+            <p style="margin-top: 20px; color: #888;">Or use: <code style="background: #2a2a2a; padding: 10px; border-radius: 4px;">http://192.168.0.217/file/web1/index.html</code></p>
+          </div>
+        `;
+      };
+      document.head.appendChild(script);
+    }
+  </script>
+</body>
+</html>
+

@@ -1,0 +1,323 @@
+{
+    "timestamp": "2025-12-11T18:57:21.853Z",
+    "devicePath": "/Drivers/BacnetNetwork/HP46",
+    "objectInfo": {
+      "type": "object",
+      "constructor": "t",
+      "toString": "BacnetDevice {HP46}",
+      "properties": {
+        "getDisplayName()": "HP46",
+        "getName()": "HP46",
+        "getSlotPath()": "slot:/Drivers/BacnetNetwork/HP46"
+      },
+      "methods": [
+        "getDisplayName",
+        "getName",
+        "getSlotPath",
+        "get"
+      ],
+      "enumerableKeys": [
+        "$map",
+        "$parent",
+        "$propInParent",
+        "$space",
+        "$handle",
+        "$bPropsLoaded",
+        "$subs",
+        "$lease",
+        "$leaseTicket",
+        "$knobs",
+        "$permissionsStr",
+        "$permissions",
+        "$nc",
+        "$muxed",
+        "getType",
+        "getStatus",
+        "getStatusDisplay",
+        "setStatus",
+        "getEnabled",
+        "getEnabledDisplay",
+        "setEnabled",
+        "getFaultCause",
+        "getFaultCauseDisplay",
+        "setFaultCause",
+        "getHealth",
+        "getHealthDisplay",
+        "setHealth",
+        "getAlarmSourceInfo",
+        "getAlarmSourceInfoDisplay",
+        "setAlarmSourceInfo",
+        "ping",
+        "ackAlarm",
+        "upload",
+        "download",
+        "getAddress",
+        "getAddressDisplay",
+        "setAddress",
+        "getPoints",
+        "getPointsDisplay",
+        "setPoints",
+        "getVirtual",
+        "getVirtualDisplay",
+        "setVirtual",
+        "getAlarms",
+        "getAlarmsDisplay",
+        "setAlarms",
+        "getSchedules",
+        "getSchedulesDisplay",
+        "setSchedules",
+        "getTrendLogs",
+        "getTrendLogsDisplay",
+        "setTrendLogs",
+        "getConfig",
+        "getConfigDisplay",
+        "setConfig",
+        "getEnumerationList",
+        "getEnumerationListDisplay",
+        "setEnumerationList",
+        "getUseCov",
+        "getUseCovDisplay",
+        "setUseCov",
+        "getUseCovProperty",
+        "getUseCovPropertyDisplay",
+        "setUseCovProperty",
+        "getMaxCovSubscriptions",
+        "getMaxCovSubscriptionsDisplay",
+        "setMaxCovSubscriptions",
+        "getCovSubscriptions",
+        "getCovSubscriptionsDisplay",
+        "setCovSubscriptions",
+        "getPollFrequency",
+        "getPollFrequencyDisplay",
+        "setPollFrequency",
+        "getCharacterSet",
+        "getCharacterSetDisplay",
+        "setCharacterSet",
+        "getMaxPollTimeouts",
+        "getMaxPollTimeoutsDisplay",
+        "setMaxPollTimeouts",
+        "getDisableDeviceOnCovSubscriptionFailure",
+        "getDisableDeviceOnCovSubscriptionFailureDisplay",
+        "setDisableDeviceOnCovSubscriptionFailure",
+        "macAddressFailed",
+        "getDownloadStatus",
+        "getDownloadStatusDisplay",
+        "setDownloadStatus",
+        "getFirmwareDownloadStatus",
+        "getFirmwareDownloadStatusDisplay",
+        "setFirmwareDownloadStatus",
+        "getThermostatFileHandler",
+        "getThermostatFileHandlerDisplay",
+        "setThermostatFileHandler",
+        "getBatchSize",
+        "getBatchSizeDisplay",
+        "setBatchSize",
+        "getSerialNo",
+        "getSerialNoDisplay",
+        "setSerialNo",
+        "getModel",
+        "getModelDisplay",
+        "setModel",
+        "getFirmwareVersion",
+        "getFirmwareVersionDisplay",
+        "setFirmwareVersion",
+        "getSupportedFeatures",
+        "getSupportedFeaturesDisplay",
+        "setSupportedFeatures",
+        "getRefreshSubscribeObject",
+        "getRefreshSubscribeObjectDisplay",
+        "setRefreshSubscribeObject",
+        "getAppConfig",
+        "getAppConfigDisplay",
+        "setAppConfig",
+        "getEditValueConfig",
+        "getEditValueConfigDisplay",
+        "setEditValueConfig",
+        "getAlarmViewConfig",
+        "getAlarmViewConfigDisplay",
+        "setAlarmViewConfig",
+        "getCommonConfig",
+        "getCommonConfigDisplay",
+        "setCommonConfig",
+        "getCoolingTRMode",
+        "getCoolingTRModeDisplay",
+        "setCoolingTRMode",
+        "getHeatingTRMode",
+        "getHeatingTRModeDisplay",
+        "setHeatingTRMode",
+        "getMstpCrcConfig",
+        "getMstpCrcConfigDisplay",
+        "setMstpCrcConfig",
+        "downloadConfig",
+        "uploadConfig",
+        "downloadFirmware",
+        "$subDf"
+      ],
+      "tags": {
+        "type": "object",
+        "getAll": "function exists",
+        "allTags": [
+          {
+            "id": {
+              "$dict": "h4",
+              "$name": "dis",
+              "$qname": "h4:dis"
+            },
+            "value": "HP46",
+            "type": "object"
+          },
+          {
+            "id": {
+              "$dict": "n",
+              "$name": "device",
+              "$qname": "n:device"
+            },
+            "value": "Marker",
+            "type": "object"
+          },
+          {
+            "id": {
+              "$dict": "n",
+              "$name": "displayName",
+              "$qname": "n:displayName"
+            },
+            "value": "HP46",
+            "type": "object"
+          },
+          {
+            "id": {
+              "$dict": "h4",
+              "$name": "device",
+              "$qname": "h4:device"
+            },
+            "value": "Marker",
+            "type": "object"
+          },
+          {
+            "id": {
+              "$dict": "n",
+              "$name": "type",
+              "$qname": "n:type"
+            },
+            "value": "honeywellTCThermostatWizard:TC300",
+            "type": "object"
+          },
+          {
+            "id": {
+              "$dict": "n",
+              "$name": "station",
+              "$qname": "n:station"
+            },
+            "value": "MJHOptimizer1",
+            "type": "object"
+          },
+          {
+            "id": {
+              "$dict": "n",
+              "$name": "hasPxView",
+              "$qname": "n:hasPxView"
+            },
+            "value": "Marker",
+            "type": "object"
+          },
+          {
+            "id": {
+              "$dict": "n",
+              "$name": "name",
+              "$qname": "n:name"
+            },
+            "value": "HP46",
+            "type": "object"
+          },
+          {
+            "id": {
+              "$dict": "n",
+              "$name": "ordInSession",
+              "$qname": "n:ordInSession"
+            },
+            "value": "station:|h:784402c",
+            "type": "object"
+          },
+          {
+            "id": {
+              "$dict": "h4",
+              "$name": "id",
+              "$qname": "h4:id"
+            },
+            "value": "nspace:MJHOptimizer1~slot:.Drivers.BacnetNetwork.HP46",
+            "type": "object"
+          },
+          {
+            "id": {
+              "$dict": "ntpl",
+              "$name": "title",
+              "$qname": "ntpl:title"
+            },
+            "value": "TC300MJH",
+            "type": "object"
+          },
+          {
+            "id": {
+              "$dict": "ntpl",
+              "$name": "id",
+              "$qname": "ntpl:id"
+            },
+            "value": "0a5e1b6f-5e2e-4a5f-ac0d-aac8bbc88be3",
+            "type": "object"
+          },
+          {
+            "id": {
+              "$dict": "ntpl",
+              "$name": "template",
+              "$qname": "ntpl:template"
+            },
+            "value": "Marker",
+            "type": "object"
+          },
+          {
+            "id": {
+              "$dict": "ntpl",
+              "$name": "fileName",
+              "$qname": "ntpl:fileName"
+            },
+            "value": "TC300MJH.ntpl",
+            "type": "object"
+          },
+          {
+            "id": {
+              "$dict": "ntpl",
+              "$name": "vendor",
+              "$qname": "ntpl:vendor"
+            },
+            "value": "Tempinc",
+            "type": "object"
+          },
+          {
+            "id": {
+              "$dict": "ntpl",
+              "$name": "version",
+              "$qname": "ntpl:version"
+            },
+            "value": "4.699",
+            "type": "object"
+          },
+          {
+            "id": {
+              "$dict": "ntpl",
+              "$name": "desc",
+              "$qname": "ntpl:desc"
+            },
+            "value": "",
+            "type": "object"
+          }
+        ]
+      }
+    },
+    "componentString": "BacnetDevice {HP46}",
+    "componentJSON": "Cannot stringify component directly",
+    "displayName": "HP46",
+    "name": "HP46",
+    "slotPath": "slot:/Drivers/BacnetNetwork/HP46",
+    "hasOutProperty": true,
+    "outValue": "null"
+  }
