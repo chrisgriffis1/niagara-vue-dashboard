@@ -542,57 +542,76 @@ class NiagaraBQLAdapter {
     }
     
     try {
-      // Extract equipment name and point name from slotPath
-      // Format: /Drivers/BacnetNetwork/HP75/points/Monitor/no_OaTemp
+      // Extract equipment name and slot name from slotPath
+      // Format: /Drivers/BacnetNetwork/HP12/points/Monitor/no_CtrlSpaceTemp
       const pathParts = point.slotPath.toString().split('/').filter(p => p);
       if (pathParts.length < 3) {
+        console.log(`  ⚠️ Cannot find history - invalid path: ${point.slotPath}`);
         return null;
       }
       
-      const equipmentName = point.equipmentId || pathParts[2]; // e.g., "HP75"
-      const pointName = point.name || pathParts[pathParts.length - 1]; // e.g., "no_OaTemp"
+      const equipmentName = point.equipmentId || pathParts[2]; // e.g., "HP12"
+      const slotName = pathParts[pathParts.length - 1]; // Last part of path, e.g., "no_CtrlSpaceTemp"
       
       // Escape single quotes for BQL (SQL-style: ' becomes '')
       const escapedEquipment = equipmentName.replace(/'/g, "''");
-      const escapedPointName = pointName.replace(/'/g, "''");
+      const escapedSlotName = slotName.replace(/'/g, "''");
       
-      // Use BQL to find HistoryConfig - same pattern as LivePoints.html line 11785
-      // Query for histories under this equipment that match the point name
-      const bqlQuery = `select id, slotPath from history:HistoryConfig where slotPath like '%/${escapedEquipment}/%' and slotPath like '%${escapedPointName}%'`;
-      const bqlOrd = `station:|slot:/Drivers|bql:${bqlQuery}`;
+      // Use BQL to find HistoryConfig - EXACT pattern from 04-bql-device-fuzzy-matching.html line 629
+      // Query from station root (station:|slot:/) not /Drivers - this is how you discovered histories on your station!
+      const bqlQuery = `select toString as 'To String\\',id as 'id\\',slotPath as 'slotPath' from history:HistoryConfig where slotPath like '%/${escapedEquipment}/%' and slotPath like '%${escapedSlotName}%'`;
+      const bqlOrd = `station:|slot:/|bql:${bqlQuery}`;
+      
+      console.log(`  🔍 Finding history for ${point.id}:`);
+      console.log(`     Equipment: ${equipmentName}, SlotName: ${slotName}`);
+      console.log(`     BQL: ${bqlQuery}`);
       
       const table = await baja.Ord.make(bqlOrd).get();
       if (!table || !table.cursor) {
+        console.log(`  ❌ BQL query returned no table for ${point.id}`);
         return null;
       }
       
       // Find matching history
       return new Promise((resolve) => {
         let foundId = null;
+        let foundPath = null;
+        let recordCount = 0;
         const self = this;
         
         table.cursor({
           each: function(record) {
-            if (foundId) return; // Already found
+            recordCount++;
             
             try {
               const id = record.get('id');
               const slotPath = record.get('slotPath');
               
-              if (id) {
+              console.log(`     Found history record ${recordCount}:`);
+              console.log(`       ID: ${id ? id.toString() : 'null'}`);
+              console.log(`       SlotPath: ${slotPath ? slotPath.toString() : 'null'}`);
+              
+              // Take the first match
+              if (id && !foundId) {
                 foundId = id.toString();
+                foundPath = slotPath ? slotPath.toString() : '';
               }
             } catch (e) {
-              // Skip invalid record
+              console.warn(`     Error reading history record:`, e);
             }
           },
           after: function() {
+            if (foundId) {
+              console.log(`  ✓ Found history ID for ${point.id}: ${foundId}`);
+            } else {
+              console.log(`  ⚠️ No history found for ${point.id} (checked ${recordCount} records)`);
+            }
             resolve(foundId);
           }
         });
       });
     } catch (e) {
-      console.warn(`Could not find history ID for ${point.id}:`, e);
+      console.warn(`❌ Error finding history ID for ${point.id}:`, e);
       return null;
     }
   }
