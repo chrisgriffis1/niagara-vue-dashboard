@@ -29,9 +29,10 @@
       </div>
     </div>
 
-    <!-- Sparkline (shown even when collapsed) - show loading state while fetching -->
-    <div v-if="loadingMiniChart || (miniChartData.length > 0 && selectedMiniPoint)" class="sparkline-section">
+    <!-- Sparkline (shown even when collapsed) - show loading state or data or "no data" -->
+    <div v-if="loadingMiniChart || miniChartData.length > 0 || sparklineAttempted" class="sparkline-section">
       <MiniChart 
+        v-if="miniChartData.length > 0 || loadingMiniChart"
         :data="miniChartData" 
         :color="getMiniChartColor()"
         :loading="loadingMiniChart"
@@ -39,7 +40,10 @@
         :unit="selectedMiniPoint?.unit"
         compact
       />
-      <div v-if="selectedMiniPoint && !loadingMiniChart" class="sparkline-label">
+      <div v-else-if="sparklineAttempted && !loadingMiniChart" class="sparkline-no-data">
+        No trend data available
+      </div>
+      <div v-if="selectedMiniPoint && !loadingMiniChart && miniChartData.length > 0" class="sparkline-label">
         {{ selectedMiniPoint.name }}
       </div>
     </div>
@@ -79,8 +83,8 @@
             </button>
           </div>
           
-          <!-- Point Selector Tabs -->
-          <div v-if="trendablePoints.length > 1" class="point-tabs">
+          <!-- Point Selector Tabs - only show when points loaded and expanded -->
+          <div v-if="pointsExpanded && trendablePoints.length > 1" class="point-tabs">
             <button
               v-for="point in trendablePoints"
               :key="point.id"
@@ -185,6 +189,7 @@ const allPointsCount = ref(0) // Total points including hidden
 const showAllPoints = ref(false) // Toggle for Tesla-style progressive disclosure
 const miniChartData = ref([])
 const loadingMiniChart = ref(false)
+const sparklineAttempted = ref(false) // Track if we've tried to load sparkline
 const primaryPoint = ref(null)
 const selectedMiniPoint = ref(null)
 const pointsLoaded = ref(false)
@@ -476,6 +481,7 @@ const loadMiniChartForPoint = async (point) => {
     miniChartData.value = []
   } finally {
     loadingMiniChart.value = false
+    sparklineAttempted.value = true
   }
 }
 
@@ -706,6 +712,14 @@ watch(() => props.equipment.id, () => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.sparkline-no-data {
+  font-size: 11px;
+  color: rgba(148, 163, 184, 0.5);
+  text-align: center;
+  padding: 20px 10px;
+  font-style: italic;
 }
 
 /* Point-Device Value Display */
