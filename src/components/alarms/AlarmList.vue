@@ -62,16 +62,16 @@
             </div>
             <p class="alarm-message">{{ alarm.message }}</p>
             <div class="alarm-meta">
-              <span v-if="alarm.state" class="alarm-state">
-                State: {{ alarm.state }}
+              <span v-if="alarm.state" class="alarm-state" :class="'state-' + alarm.state?.toLowerCase()">
+                {{ alarm.state }}
               </span>
               <button 
                 v-if="alarm.equipmentId" 
                 class="go-to-equipment-btn"
-                @click="handleEquipmentClick(alarm.equipmentId)"
-                title="Click to view this equipment"
+                @click.stop="handleEquipmentClick(alarm.equipmentId)"
+                title="Click to scroll to this equipment"
               >
-                📍 Go to {{ getEquipmentName(alarm.equipmentId) }} →
+                📍 {{ getEquipmentName(alarm.equipmentId) }}
               </button>
               <span class="alarm-timestamp">
                 {{ formatTime(alarm.timestamp) }}
@@ -509,31 +509,65 @@ const handleEquipmentClick = (equipmentId) => {
   color: var(--color-accent-hover);
 }
 
+/* Alarm State Colors */
+.alarm-state {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.alarm-state.state-offnormal {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.alarm-state.state-normal {
+  background: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.4);
+}
+
+.alarm-state.state-fault {
+  background: rgba(249, 115, 22, 0.2);
+  color: #f97316;
+  border: 1px solid rgba(249, 115, 22, 0.4);
+}
+
+/* Go to Equipment Button - High Contrast */
 .go-to-equipment-btn {
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-  color: white;
-  border: none;
-  padding: 6px 12px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 500;
+  background: linear-gradient(135deg, #1e40af 0%, #1e3a8a 100%);
+  color: #ffffff;
+  border: 1px solid #3b82f6;
+  padding: 5px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
   display: inline-flex;
   align-items: center;
   gap: 4px;
   margin-left: 8px;
-  box-shadow: 0 2px 4px rgba(59, 130, 246, 0.3);
+  text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+  animation: subtle-pulse 2s ease-in-out infinite;
+}
+
+@keyframes subtle-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
+  50% { box-shadow: 0 0 0 4px rgba(59, 130, 246, 0); }
 }
 
 .go-to-equipment-btn:hover {
   background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 8px rgba(59, 130, 246, 0.4);
+  transform: scale(1.05);
+  animation: none;
 }
 
 .go-to-equipment-btn:active {
-  transform: translateY(0);
+  transform: scale(0.98);
 }
 
 /* Actions */

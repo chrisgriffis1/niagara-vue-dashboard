@@ -2152,7 +2152,7 @@ class NiagaraBQLAdapter {
                 }
               }
               
-              // Parse priority
+              // Parse priority - default class is lowest
               let priority = 'medium'
               const classLower = (alarmClass || '').toLowerCase()
               const stateLower = (toState || sourceState).toLowerCase()
@@ -2160,6 +2160,8 @@ class NiagaraBQLAdapter {
                 priority = 'critical'
               } else if (classLower.includes('warning') || classLower.includes('caution')) {
                 priority = 'high'
+              } else if (classLower === 'default' || classLower.includes('defaultalarmclass')) {
+                priority = 'low' // Default class is lowest priority
               }
               
               // Friendly class name
@@ -2305,9 +2307,15 @@ class NiagaraBQLAdapter {
     }
     this.alarmCallbacks.push(callback)
     
-    // Immediately call with current alarms
+    // Immediately call with current alarms if available
     if (this.alarms && this.alarms.length > 0) {
       callback(this.alarms)
+    } else {
+      // No alarms yet - trigger a refresh
+      console.log('🔔 No alarms cached, triggering refresh...')
+      this._startAlarmMonitoring().catch(err => {
+        console.warn('Alarm refresh failed:', err)
+      })
     }
     
     // Return unsubscribe function
