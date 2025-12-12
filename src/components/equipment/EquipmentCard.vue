@@ -61,7 +61,7 @@
               :class="['point-tab', { active: selectedMiniPoint?.id === point.id }]"
               :title="point.name"
             >
-              {{ point.type }}
+              {{ point.name }}
             </button>
           </div>
           
