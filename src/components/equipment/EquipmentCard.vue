@@ -326,8 +326,6 @@ const toggleShowAllPoints = async () => {
 
 // Load mini-chart data automatically - loads sparkline even when card is collapsed
 const loadMiniChartData = async () => {
-  if (!props.equipment.pointCount) return
-  
   // Don't reload if already loaded
   if (miniChartData.value.length > 0 && selectedMiniPoint.value) {
     return
@@ -393,11 +391,12 @@ onMounted(async () => {
     }
   }
   
-  // Load sparkline automatically for equipment with points (staggered to avoid hammering)
-  if (props.equipment.pointCount > 0 && !props.equipment.isPointDevice) {
-    console.log(`📊 Scheduling sparkline load for ${props.equipment.name} (${props.equipment.pointCount} points)`)
-    // Stagger loading based on equipment index to spread load
-    const staggerDelay = Math.random() * 2000 // 0-2 seconds random delay
+  // Load sparkline automatically for regular equipment (not point-devices)
+  // Note: pointCount may be 0 at startup since points are lazy-loaded, so we don't check it
+  if (!props.equipment.isPointDevice) {
+    console.log(`📊 Scheduling sparkline load for ${props.equipment.name}`)
+    // Stagger loading based on equipment index to spread load (0-3 seconds)
+    const staggerDelay = Math.random() * 3000
     setTimeout(async () => {
       try {
         console.log(`📊 Starting sparkline load for ${props.equipment.name}...`)
