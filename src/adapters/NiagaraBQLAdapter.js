@@ -155,13 +155,19 @@ class NiagaraBQLAdapter {
                 console.log(`  Processing equipment ${count}...`);
               }
               try {
-                const slotPath = record.get('slotPath')?.toString() || '';
+                let slotPath = record.get('slotPath')?.toString() || '';
                 const displayName = record.get('displayName')?.toString() || '';
                 const name = record.get('name')?.toString() || '';
                 
                 if (!slotPath) {
                   console.warn(`  Skipping record ${count} - no slotPath`);
                   return;
+                }
+                
+                // Clean slotPath: remove "slot:" prefix, ensure starts with /
+                slotPath = slotPath.replace(/^slot:/, '').trim();
+                if (!slotPath.startsWith('/')) {
+                  slotPath = '/' + slotPath;
                 }
                 
                 // Extract equipment ID from slotPath
@@ -539,12 +545,22 @@ class NiagaraBQLAdapter {
     
     console.log(`  📡 Loading points for ${equipment.name}...`);
     
+    // Clean slotPath: remove "slot:" prefix if present, ensure starts with /
+    let cleanPath = (equipment.slotPath || '').toString().trim();
+    cleanPath = cleanPath.replace(/^slot:/, '');
+    if (!cleanPath.startsWith('/')) {
+      cleanPath = '/' + cleanPath;
+    }
+    console.log(`  📝 Clean path: ${cleanPath}`);
+    
     // Query points for this specific equipment
-    const bql = `station:|slot:${equipment.slotPath}|bql:select slotPath, displayName, name, out from control:ControlPoint`;
+    const bql = `station:|slot:${cleanPath}|bql:select slotPath, displayName, name, out from control:ControlPoint`;
+    console.log(`  📝 BQL: ${bql}`);
     
     try {
       const table = await baja.Ord.make(bql).get();
       if (!table || !table.cursor) {
+        console.log(`  ⚠️ No table/cursor returned for ${equipment.name}`);
         return [];
       }
       
