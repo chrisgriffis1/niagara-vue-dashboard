@@ -173,17 +173,20 @@ class NiagaraBQLAdapter {
           console.log(`📊 DEBUG: Sample equipment with zone: ${sample?.id} → zone="${sample?.zone}", location="${sample?.location}"`);
         }
 
-        // Notify alarm callbacks if we have cached alarms
-        if (this.alarms.length > 0 && this.alarmCallbacks && this.alarmCallbacks.length > 0) {
-          this.alarmCallbacks.forEach(cb => {
-            try {
-              cb(this.alarms)
-            } catch (e) {}
-          })
-        }
-
         // Mark as initialized immediately for instant UI
         this.initialized = true;
+
+        // IMMEDIATELY refresh alarms - don't wait for background
+        console.log('🔔 Fetching fresh alarms...');
+        this._startAlarmMonitoring().then(() => {
+          console.log('🔔 Fresh alarms loaded');
+          this._saveToCache();
+        }).catch(err => {
+          console.warn('⚠️ Alarm refresh failed:', err);
+        });
+
+        // Set up auto-refresh for alarms every 10 minutes
+        this._setupAlarmAutoRefresh();
 
         // ALWAYS run background refresh to get fresh data
         console.log('🔄 Starting background data refresh...');
@@ -192,10 +195,6 @@ class NiagaraBQLAdapter {
             // CRITICAL: Re-discover zones - they may not be in equipment objects
             await this._discoverZones();
             console.log('🔄 Zones refreshed');
-
-            // Run these in sequence so we can update cache progressively
-            await this._startAlarmMonitoring();
-            console.log('🔄 Alarms refreshed');
 
             await this._startLiveSubscriptions();
             console.log('🔄 Status refreshed');
@@ -249,6 +248,9 @@ class NiagaraBQLAdapter {
         console.warn('⚠️ Alarm monitoring failed:', err)
       })
       
+      // Set up auto-refresh for alarms every 10 minutes
+      this._setupAlarmAutoRefresh();
+      
       // Start background loading of points with history (non-blocking)
       this._backgroundLoadHistoryPoints().catch(err => {
         console.warn('⚠️ Background history loading failed:', err)
@@ -269,6 +271,33 @@ class NiagaraBQLAdapter {
     }
   }
   
+  /**
+   * Setup automatic alarm refresh every 10 minutes
+   * @private
+   */
+  _setupAlarmAutoRefresh() {
+    // Clear any existing interval
+    if (this._alarmRefreshInterval) {
+      clearInterval(this._alarmRefreshInterval);
+    }
+    
+    // Refresh alarms every 10 minutes (600000ms)
+    const ALARM_REFRESH_INTERVAL = 10 * 60 * 1000; // 10 minutes
+    
+    this._alarmRefreshInterval = setInterval(async () => {
+      console.log('🔔 Auto-refreshing alarms...');
+      try {
+        await this._startAlarmMonitoring();
+        this._saveToCache();
+        console.log('🔔 Alarm auto-refresh complete');
+      } catch (err) {
+        console.warn('⚠️ Alarm auto-refresh failed:', err);
+      }
+    }, ALARM_REFRESH_INTERVAL);
+    
+    console.log('⏰ Alarm auto-refresh scheduled every 10 minutes');
+  }
+
   /**
    * Load all points (for full discovery if needed)
    * Call this explicitly if you need ALL points
