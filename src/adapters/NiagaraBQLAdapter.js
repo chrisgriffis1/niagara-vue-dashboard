@@ -20,6 +20,8 @@ class NiagaraBQLAdapter {
     this.alarmCallbacks = [];
     this.cacheKey = 'niagara_dashboard_cache';
     this.zones = [];
+    this.historyCache = new Map(); // Cache for preloaded history data: historyId -> {data, timestamp}
+    this.historyIdCache = new Map(); // Cache for history IDs: pointId -> historyId
     
     // Expose adapter to window for debugging
     // Usage in console: window.adapter.clearCache() or window.adapter.forceRefreshNow()
@@ -516,9 +518,20 @@ class NiagaraBQLAdapter {
                   if (unitMatch) {
                     unit = unitMatch[1];
                   }
+                  
+                  // Round numeric values to 1 decimal place for cleaner display
+                  const numVal = parseFloat(currentValue);
+                  if (!isNaN(numVal)) {
+                    currentValue = Math.round(numVal * 10) / 10;
+                  }
                 } else {
                   // No status in braces, just use the value
                   currentValue = outValue.trim();
+                  // Round if numeric
+                  const numVal = parseFloat(currentValue);
+                  if (!isNaN(numVal)) {
+                    currentValue = Math.round(numVal * 10) / 10;
+                  }
                 }
               }
               
@@ -1141,23 +1154,43 @@ class NiagaraBQLAdapter {
     
     console.log(`📈 Getting history for: ${point.name || point.id}`);
 
-    // Find history ID for this point
-    // History IDs are typically the point's path relative to station root
-    const historyId = point.historyId || await this._findHistoryId(point);
+    // Check history ID cache first
+    const pointKey = point.id || point.slotPath
+    let historyId = point.historyId || this.historyIdCache.get(pointKey)
+    
+    if (!historyId) {
+      historyId = await this._findHistoryId(point);
+      if (historyId) {
+        this.historyIdCache.set(pointKey, historyId)
+        point.historyId = historyId // Cache on point object too
+      }
+    }
     
     if (!historyId) {
       console.log(`⚠️ No history config found for: ${point.name || point.id}`);
       return [];
     }
     
+    // Check if we have cached history data (from preload)
+    const cachedHistory = this.historyCache.get(historyId)
+    if (cachedHistory && (Date.now() - cachedHistory.timestamp) < 5 * 60 * 1000) {
+      console.log(`📈 Using cached history (${cachedHistory.data.length} points)`)
+      return cachedHistory.data
+    }
+    
     console.log(`   historyId: ${historyId}`);
 
-    // Default to 1 year lookback for COV histories which may have sparse data
+    // Default to 2 weeks lookback for sparklines (faster than 365 days)
     // COV = Change of Value - only records when significant change happens
-    const startDate = timeRange.start || new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
+    const startDate = timeRange.start || new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
     const endDate = timeRange.end || new Date();
 
-    return this._queryHistory(historyId, startDate, endDate);
+    const data = await this._queryHistory(historyId, startDate, endDate);
+    
+    // Cache the result for 5 minutes
+    this.historyCache.set(historyId, { data, timestamp: Date.now() })
+    
+    return data;
   }
 
   /**
@@ -1893,9 +1926,57 @@ class NiagaraBQLAdapter {
       }
       
       console.log('🔄 Background history loading complete')
+      
+      // Schedule extended history preload when idle (after 5 seconds of inactivity)
+      this._scheduleIdleHistoryPreload()
     } catch (e) {
       console.warn('⚠️ Background history loading error:', e)
     }
+  }
+  
+  /**
+   * Schedule idle history preload - loads more history data when user is inactive
+   * @private
+   */
+  _scheduleIdleHistoryPreload() {
+    // Use requestIdleCallback if available, otherwise setTimeout
+    const scheduleIdle = window.requestIdleCallback || ((cb) => setTimeout(cb, 5000))
+    
+    scheduleIdle(async () => {
+      console.log('🔄 Starting idle history preload...')
+      
+      try {
+        // Preload points for next batch of equipment with history
+        const equipWithHistory = this.equipment.filter(e => e.hasHistory)
+        const alreadyLoaded = new Set([...this.equipmentPointsMap.keys()])
+        const needsLoading = equipWithHistory.filter(e => !alreadyLoaded.has(e.id)).slice(0, 10)
+        
+        if (needsLoading.length === 0) {
+          console.log('🔄 All equipment points already loaded')
+          return
+        }
+        
+        console.log(`🔄 Idle preload: loading ${needsLoading.length} more equipment`)
+        
+        for (const equip of needsLoading) {
+          try {
+            await this._loadPointsForEquipment(equip.id)
+            // Small delay between loads to not block UI
+            await new Promise(r => setTimeout(r, 100))
+          } catch (e) {}
+        }
+        
+        console.log('🔄 Idle preload complete')
+        
+        // Schedule another batch if more equipment needs loading
+        const stillNeedsLoading = equipWithHistory.filter(e => !this.equipmentPointsMap.has(e.id))
+        if (stillNeedsLoading.length > 0) {
+          this._scheduleIdleHistoryPreload()
+        }
+      } catch (e) {
+        console.warn('⚠️ Idle preload error:', e)
+      }
+    }, { timeout: 10000 }) // Max 10 seconds wait
   }
   
   /**
