@@ -151,9 +151,11 @@ class NiagaraBQLAdapter {
       // Check for force refresh flag
       const forceRefresh = window.localStorage.getItem('niagara-force-refresh') === 'true';
       if (forceRefresh) {
-        console.log('🔄 Force refresh requested - clearing cache');
+        console.log('🔄 Force refresh requested - clearing ALL caches');
         window.localStorage.removeItem('niagara-force-refresh');
         window.localStorage.removeItem(this.cacheKey);
+        window.localStorage.removeItem('niagara-history-id-cache');
+        this.historyIdCache.clear();
       }
       
       // Try to load from cache first for instant startup
@@ -176,13 +178,19 @@ class NiagaraBQLAdapter {
         // Mark as initialized immediately for instant UI
         this.initialized = true;
 
-        // IMMEDIATELY cache history IDs for fast sparkline loading (BEFORE UI renders)
-        console.log('📊 Pre-caching history IDs for sparklines...');
-        this._cacheAllHistoryIds().then(() => {
-          console.log(`📊 History ID cache ready: ${this.historyIdCache.size} entries`);
-        }).catch(err => {
-          console.warn('⚠️ History ID caching failed:', err);
-        });
+        // Load history IDs from localStorage cache (INSTANT) or query if not cached
+        this._loadHistoryIdCache();
+        if (this.historyIdCache.size > 0) {
+          console.log(`📊 History ID cache loaded from storage: ${this.historyIdCache.size} entries - INSTANT!`);
+        } else {
+          console.log('📊 No history cache, querying BQL (first load)...');
+          this._cacheAllHistoryIds().then(() => {
+            console.log(`📊 History ID cache ready: ${this.historyIdCache.size} entries`);
+            this._saveHistoryIdCache(); // Save to localStorage for next time
+          }).catch(err => {
+            console.warn('⚠️ History ID caching failed:', err);
+          });
+        }
 
         // IMMEDIATELY refresh alarms - don't wait for background
         console.log('🔔 Fetching fresh alarms...');
@@ -280,8 +288,47 @@ class NiagaraBQLAdapter {
   }
   
   /**
+   * Load history ID cache from localStorage (INSTANT)
+   * @private
+   */
+  _loadHistoryIdCache() {
+    try {
+      const cached = window.localStorage.getItem('niagara-history-id-cache');
+      if (cached) {
+        const data = JSON.parse(cached);
+        // Check if cache is less than 24 hours old
+        if (data.timestamp && (Date.now() - data.timestamp) < 24 * 60 * 60 * 1000) {
+          this.historyIdCache = new Map(Object.entries(data.entries || {}));
+          return true;
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load history ID cache:', e);
+    }
+    return false;
+  }
+
+  /**
+   * Save history ID cache to localStorage for instant loading next time
+   * @private
+   */
+  _saveHistoryIdCache() {
+    try {
+      const entries = Object.fromEntries(this.historyIdCache);
+      const data = {
+        timestamp: Date.now(),
+        entries: entries
+      };
+      window.localStorage.setItem('niagara-history-id-cache', JSON.stringify(data));
+      console.log(`💾 History ID cache saved: ${this.historyIdCache.size} entries`);
+    } catch (e) {
+      console.warn('Failed to save history ID cache:', e);
+    }
+  }
+
+  /**
    * Fast cache of ALL history IDs for instant sparkline lookups
-   * Called immediately on startup before UI renders
+   * Called on first load when no localStorage cache exists
    * @private
    */
   async _cacheAllHistoryIds() {
@@ -2106,6 +2153,9 @@ class NiagaraBQLAdapter {
       })
       
       console.log(`🔄 Found ${historyPaths.size} history configs, cached ${this.historyIdCache.size} history IDs`)
+      
+      // Save history ID cache to localStorage for instant loading next time
+      this._saveHistoryIdCache();
       
       // Mark equipment that likely has history
       for (const equip of this.equipment) {
