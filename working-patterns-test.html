@@ -1,0 +1,623 @@
+<!-- @noSnoop -->
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Working Patterns Test</title>
+  <style>
+    body { font-family: Arial; background: #1e1e1e; color: #fff; padding: 20px; }
+    button { background: #4CAF50; color: white; border: none; padding: 10px 20px; cursor: pointer; margin: 5px; }
+    pre { background: #2d2d2d; padding: 10px; border-radius: 4px; overflow: auto; }
+  </style>
+</head>
+<body>
+  <h1>Working Niagara Patterns Test</h1>
+  <p>Test ONE pattern at a time. Check console for results.</p>
+
+  <h2>1. BQL Query Pattern</h2>
+  <button onclick="testBQL()">Test BQL Query</button>
+  <pre id="result1"></pre>
+
+  <h2>2. Subscription Pattern</h2>
+  <button onclick="testSubscription()">Test Point Subscription</button>
+  <button id="stopSubBtn" onclick="stopSubscription()" style="background:#f44336; display:none;">Stop Subscription</button>
+  <div id="result2" style="background:#2d2d2d; padding:15px; border-radius:4px; margin-top:10px; font-family:monospace; min-height:100px;">
+    Click "Test Point Subscription" to start
+  </div>
+
+  <h2>3. Batch Resolve & Multi-Point Subscription</h2>
+  <button onclick="testBatchResolve()">Test Batch Resolve (HP Device)</button>
+  <button id="stopBatchBtn" onclick="stopBatchSubscription()" style="background:#f44336; display:none;">Stop All Subscriptions</button>
+  <div id="result3" style="background:#2d2d2d; padding:15px; border-radius:4px; margin-top:10px; font-family:monospace; min-height:100px;">
+    Click "Test Batch Resolve" to find HP device and subscribe to all its points
+  </div>
+
+  <script type='text/javascript' src='/requirejs/config.js'></script>
+  <script type='text/javascript' src='/module/js/com/tridium/js/ext/require/require.min.js'></script>
+
+  <script>
+    // Pattern 1: BQL Query - Equipment Discovery
+    // Extracted from: LivePoints.html line 1486
+    // Uses RequireJS to load Baja (same pattern as working code)
+    window.testBQL = function() {
+      const resultDiv = document.getElementById('result1');
+      resultDiv.textContent = 'Loading Baja...';
+      
+      // Use RequireJS to load Baja (same as working code)
+      if (typeof require !== 'undefined') {
+        require(["baja!", "Promise"], function (baja, Promise) {
+          runBQLTest(baja);
+        }, function(err) {
+          resultDiv.textContent = 'Error loading Baja module: ' + (err.message || err);
+          // Fallback: try global baja after delay
+          setTimeout(function() {
+            if (typeof baja !== 'undefined') {
+              runBQLTest(baja);
+            } else {
+              resultDiv.textContent = 'Error: Baja not available';
+            }
+          }, 2000);
+        });
+      } else {
+        // No RequireJS - wait for global baja
+        var attempts = 0;
+        var checkBaja = setInterval(function() {
+          attempts++;
+          if (typeof baja !== 'undefined') {
+            clearInterval(checkBaja);
+            runBQLTest(baja);
+          } else if (attempts > 20) {
+            clearInterval(checkBaja);
+            resultDiv.textContent = 'Error: Baja not available after waiting';
+          }
+        }, 500);
+      }
+    };
+    
+    function runBQLTest(baja) {
+      const resultDiv = document.getElementById('result1');
+      resultDiv.textContent = 'Testing...';
+      
+      const bql = "station:|slot:/Drivers/BacnetNetwork|bql:select slotPath, displayName, name, out, status from control:ControlPoint";
+      
+      new Promise(function(resolve, reject) {
+        const timeout = setTimeout(function() { reject(new Error('Timeout')); }, 60000);
+        
+        baja.Ord.make(bql).get().then(function(table) {
+          clearTimeout(timeout);
+          let count = 0;
+          const samples = [];
+          
+          table.cursor({
+            limit: 10,
+            each: function(record) {
+              count++;
+              if (samples.length < 3) {
+                samples.push({
+                  name: record.get('name')?.toString() || '',
+                  displayName: record.get('displayName')?.toString() || ''
+                });
+              }
+            },
+            after: function() {
+              resolve({ count: count, samples: samples });
+            }
+          });
+        }).catch(function(err) {
+          clearTimeout(timeout);
+          reject(err);
+        });
+      }).then(function(result) {
+        resultDiv.textContent = 'Success: ' + result.count + ' records\n' + JSON.stringify(result.samples, null, 2);
+        console.log('✅ BQL Test:', result);
+      }).catch(function(err) {
+        resultDiv.textContent = 'Error: ' + (err.message || err);
+        console.error('❌ BQL Error:', err);
+      });
+    }
+
+    // Pattern 2: Subscription - Subscribe to Point.out
+    // Extracted from: LivePoints.html line 1825
+    window.testSubscription = function() {
+      const resultDiv = document.getElementById('result2');
+      resultDiv.textContent = 'Loading Baja...';
+      
+      if (typeof require !== 'undefined') {
+        require(["baja!", "Promise"], function (baja, Promise) {
+          runSubscriptionTest(baja);
+        }, function(err) {
+          resultDiv.textContent = 'Error loading Baja: ' + (err.message || err);
+        });
+      } else {
+        var attempts = 0;
+        var checkBaja = setInterval(function() {
+          attempts++;
+          if (typeof baja !== 'undefined') {
+            clearInterval(checkBaja);
+            runSubscriptionTest(baja);
+          } else if (attempts > 20) {
+            clearInterval(checkBaja);
+            resultDiv.textContent = 'Error: Baja not available';
+          }
+        }, 500);
+      }
+    };
+    
+    // Store subscription globally so we can stop it
+    window.activeSubscription = null;
+    window.activeSubscriber = null;
+    
+    window.stopSubscription = function() {
+      if (window.activeSubscriber) {
+        try {
+          // Unsubscribe first (per official example pattern)
+          window.activeSubscriber.unsubscribeAll();
+        } catch(e) {
+          console.warn('Error unsubscribing:', e);
+        }
+        
+        try {
+          // Then detach all handlers (per official example pattern)
+          window.activeSubscriber.detach();
+        } catch(e) {
+          console.warn('Error detaching handlers:', e);
+        }
+        
+        window.activeSubscriber = null;
+        window.activeSubscription = null;
+        document.getElementById('stopSubBtn').style.display = 'none';
+        const resultDiv = document.getElementById('result2');
+        resultDiv.innerHTML = resultDiv.innerHTML + '<br><br><strong style="color:#4CAF50;">Subscription stopped.</strong>';
+      }
+    };
+    
+    function runSubscriptionTest(baja) {
+      const resultDiv = document.getElementById('result2');
+      resultDiv.innerHTML = '🔍 Finding a temperature point (changes frequently)...';
+      
+      // Search for temperature points that change frequently
+      const bql = "station:|slot:/Drivers/BacnetNetwork|bql:select slotPath, name, displayName from control:ControlPoint where name like '%Temp%' or displayName like '%Temp%' or name like '%temp%'";
+      
+      baja.Ord.make(bql).get().then(function(table) {
+        let devicePath = null;
+        let pointName = null;
+        let displayName = null;
+        
+        let pointSlotPath = null; // Save full slotPath for ORD construction
+        
+        table.cursor({
+          limit: 10, // Check multiple points to find a good one
+          each: function(record) {
+            // Take first temperature point found
+            if (!devicePath) {
+              const slotPath = record.get('slotPath')?.toString();
+              const name = record.get('name')?.toString();
+              const dispName = record.get('displayName')?.toString();
+              if (slotPath && name) {
+                // CRITICAL: Clean slotPath - it may already contain "slot:" prefix
+                let cleanSlotPath = slotPath.toString().trim();
+                cleanSlotPath = cleanSlotPath.replace(/^slot:/, '');
+                
+                // Save full slotPath for ORD construction
+                pointSlotPath = cleanSlotPath;
+                
+                // Extract device path from slotPath
+                const pathParts = cleanSlotPath.split('/');
+                pathParts.pop(); // Remove point name
+                devicePath = pathParts.join('/');
+                pointName = name;
+                displayName = dispName || name;
+              }
+            }
+          },
+          after: function() {
+            if (!devicePath || !pointName || !pointSlotPath) {
+              resultDiv.innerHTML = '❌ Error: No temperature points found. Trying any point...';
+              // Fallback: try any point
+              const fallbackBql = "station:|slot:/Drivers/BacnetNetwork|bql:select slotPath, name, displayName from control:ControlPoint";
+              baja.Ord.make(fallbackBql).get().then(function(table2) {
+                table2.cursor({
+                  limit: 1,
+                  each: function(record) {
+                    const slotPath = record.get('slotPath')?.toString();
+                    const name = record.get('name')?.toString();
+                    if (slotPath && name && !devicePath) {
+                      let cleanSlotPath = slotPath.toString().trim().replace(/^slot:/, '');
+                      pointSlotPath = cleanSlotPath;
+                      const pathParts = cleanSlotPath.split('/');
+                      pathParts.pop();
+                      devicePath = pathParts.join('/');
+                      pointName = name;
+                      displayName = record.get('displayName')?.toString() || name;
+                    }
+                  },
+                  after: function() {
+                    if (devicePath && pointName && pointSlotPath) {
+                      setupSubscription(baja, devicePath, pointName, displayName, pointSlotPath, resultDiv);
+                    } else {
+                      resultDiv.innerHTML = '❌ Error: No points found to test';
+                    }
+                  }
+                });
+              });
+              return;
+            }
+            
+            setupSubscription(baja, devicePath, pointName, displayName, pointSlotPath, resultDiv);
+          }
+        });
+      }).catch(function(err) {
+        resultDiv.innerHTML = '❌ Error in BQL query: ' + (err.message || err);
+        console.error('❌ BQL Error:', err);
+      });
+    }
+    
+    function setupSubscription(baja, devicePath, pointName, displayName, pointSlotPath, resultDiv) {
+      // Create subscriber BEFORE getting the point (per official example pattern)
+      const subscriber = new baja.Subscriber();
+      window.activeSubscriber = subscriber;
+      let updateCount = 0;
+      
+      // Construct point ORD from slotPath
+      const cleanSlotPath = pointSlotPath.startsWith('/') ? pointSlotPath : '/' + pointSlotPath;
+      const pointOrd = 'station:|slot:' + cleanSlotPath;
+      
+      resultDiv.innerHTML = '✅ Subscribed to: <strong style="color:#4CAF50;">' + displayName + '</strong><br>' +
+        'Point: ' + pointName + '<br>' +
+        'ORD: ' + pointOrd + '<br><br>' +
+        '<div id="liveValue" style="font-size:18px; color:#2196F3; margin:10px 0;">Loading...</div>' +
+        '<div id="updateCount" style="font-size:12px; color:#888;">Updates: 0</div>';
+      
+      // Update function (per official example pattern)
+      function update(point) {
+        try {
+          const out = point.get('out');
+          if (out) {
+            const parsed = parseValue(out.toString());
+            const liveDiv = document.getElementById('liveValue');
+            const countDiv = document.getElementById('updateCount');
+            
+            liveDiv.innerHTML = '<strong>Current Value:</strong> <span style="color:#4CAF50; font-weight:bold;">' + parsed.value + '</span>' +
+              (parsed.status ? ' <span style="color:#888;">(' + parsed.status + ')</span>' : '') +
+              ' <span style="color:#888; font-size:12px;">@ ' + new Date().toLocaleTimeString() + '</span>';
+            
+            updateCount++;
+            countDiv.textContent = 'Updates received: ' + updateCount;
+            console.log('Update #' + updateCount + ':', parsed.value, parsed.status);
+          }
+        } catch(e) {
+          console.error('Error in update:', e);
+        }
+      }
+      
+      // Attach changed handler - filter for 'out' property (per official example)
+      subscriber.attach('changed', function(prop) {
+        // Only update when 'out' property changes
+        if (prop && prop.getName && prop.getName() === 'out') {
+          // 'this' refers to the component (point) in the handler
+          update(this);
+        }
+      });
+      
+      // Get point WITH subscriber (per official example pattern)
+      baja.Ord.make(pointOrd).get({ subscriber: subscriber })
+        .then(function(point) {
+          // Update once to capture initial value
+          update(point);
+          
+          // Show stop button
+          document.getElementById('stopSubBtn').style.display = 'inline-block';
+          window.activeSubscription = { point: point, subscriber: subscriber };
+          
+          console.log('✅ Subscription active - watching for changes to point.out...');
+        })
+        .catch(function(err) {
+          resultDiv.innerHTML = '❌ Error getting point with subscriber: ' + (err.message || err) + '<br>ORD: ' + pointOrd;
+          console.error('❌ Point Error:', err);
+        });
+    }
+    
+    // Helper to parse "value {status}" format
+    function parseValue(valueStr) {
+      // Format is typically "value {status}" or just "value"
+      const match = valueStr.match(/^(.+?)\s*\{([^}]+)\}/);
+      if (match) {
+        return {
+          value: match[1].trim(),
+          status: match[2].trim()
+        };
+      }
+      return {
+        value: valueStr.trim(),
+        status: null
+      };
+    }
+
+    // Pattern 3: Batch Resolve - Find HP device and subscribe to all its points
+    window.testBatchResolve = function() {
+      const resultDiv = document.getElementById('result3');
+      resultDiv.innerHTML = 'Loading Baja...';
+      
+      if (typeof require !== 'undefined') {
+        require(["baja!", "Promise"], function (baja, Promise) {
+          runBatchResolveTest(baja);
+        }, function(err) {
+          resultDiv.innerHTML = 'Error loading Baja: ' + (err.message || err);
+        });
+      } else {
+        var attempts = 0;
+        var checkBaja = setInterval(function() {
+          attempts++;
+          if (typeof baja !== 'undefined') {
+            clearInterval(checkBaja);
+            runBatchResolveTest(baja);
+          } else if (attempts > 20) {
+            clearInterval(checkBaja);
+            resultDiv.innerHTML = 'Error: Baja not available';
+          }
+        }, 500);
+      }
+    };
+    
+    // Store batch subscription globally
+    window.batchSubscriber = null;
+    window.batchPoints = [];
+    window.batchUpdateCounts = {};
+    
+    window.stopBatchSubscription = function() {
+      if (window.batchSubscriber) {
+        try {
+          window.batchSubscriber.unsubscribeAll();
+        } catch(e) {
+          console.warn('Error unsubscribing:', e);
+        }
+        
+        try {
+          window.batchSubscriber.detach();
+        } catch(e) {
+          console.warn('Error detaching:', e);
+        }
+        
+        window.batchSubscriber = null;
+        window.batchPoints = [];
+        window.batchUpdateCounts = {};
+        document.getElementById('stopBatchBtn').style.display = 'none';
+        const resultDiv = document.getElementById('result3');
+        resultDiv.innerHTML = resultDiv.innerHTML + '<br><br><strong style="color:#4CAF50;">All subscriptions stopped.</strong>';
+      }
+    };
+    
+    function runBatchResolveTest(baja) {
+      const resultDiv = document.getElementById('result3');
+      resultDiv.innerHTML = '🔍 Finding HP device by implied tags...';
+      
+      // Step 1: Get all components and check their implied tags for n:device matching HP or Heatpump
+      const deviceBql = "station:|slot:/Drivers/BacnetNetwork|bql:select slotPath, displayName, name from component:Component";
+      
+      baja.Ord.make(deviceBql).get().then(function(table) {
+        const componentOrds = [];
+        const componentInfo = [];
+        
+        // Collect all components first
+        table.cursor({
+          limit: 200,
+          each: function(record) {
+            const slotPath = record.get('slotPath')?.toString();
+            const name = record.get('name')?.toString();
+            const displayName = record.get('displayName')?.toString();
+            
+            if (slotPath) {
+              let cleanSlotPath = slotPath.toString().trim().replace(/^slot:/, '');
+              const cleanPath = cleanSlotPath.startsWith('/') ? cleanSlotPath : '/' + cleanSlotPath;
+              const componentOrd = 'station:|slot:' + cleanPath;
+              
+              componentOrds.push(componentOrd);
+              componentInfo.push({ ord: componentOrd, name: name, displayName: displayName, path: cleanPath });
+            }
+          },
+          after: function() {
+            resultDiv.innerHTML = 'Checking ' + componentOrds.length + ' components for HP device tag...';
+            
+            // Step 2: Use BatchResolve to get all components, then check their tags
+            const resolve = new baja.BatchResolve(componentOrds);
+            
+            resolve.resolve({
+              each: function() {
+                // Each resolved component
+              }
+            }).then(function() {
+              // Now check tags for each component
+              let devicePath = null;
+              let deviceName = null;
+              
+              const tagCheckPromises = componentInfo.map(function(info) {
+                return baja.Ord.make(info.ord).get()
+                  .then(function(component) {
+                    if (devicePath) return null; // Already found
+                    
+                    try {
+                      // Check implied tags - look for n:device tag
+                      const tags = component.getTags ? component.getTags() : null;
+                      if (tags) {
+                        // Check if n:device tag exists and matches HP or Heatpump (case insensitive)
+                        const deviceTag = tags.get('n:device');
+                        if (deviceTag) {
+                          const deviceTagValue = deviceTag.toString().toLowerCase();
+                          if (deviceTagValue.includes('hp') || deviceTagValue.includes('heatpump')) {
+                            // Found HP device!
+                            devicePath = info.path;
+                            deviceName = info.displayName || info.name;
+                            console.log('✅ Found HP device:', deviceName, 'at', devicePath, 'device tag:', deviceTag.toString());
+                            return { path: devicePath, name: deviceName };
+                          }
+                        }
+                      }
+                    } catch(e) {
+                      // Component might not have tags, continue
+                    }
+                    return null;
+                  })
+                  .catch(function(err) {
+                    return null;
+                  });
+              });
+              
+              Promise.all(tagCheckPromises).then(function(results) {
+                const foundDevice = results.find(function(r) { return r !== null; });
+                
+                if (!foundDevice) {
+                  resultDiv.innerHTML = '❌ Error: No HP device found (checking n:device tag for HP or Heatpump)';
+                  return;
+                }
+                
+                devicePath = foundDevice.path;
+                deviceName = foundDevice.name;
+                
+                resultDiv.innerHTML = '✅ Found device: <strong style="color:#4CAF50;">' + deviceName + '</strong><br>' +
+                  'Path: ' + devicePath + '<br>' +
+                  'Getting all control points...';
+                
+                // Step 3: Get all control points from this device
+                const pointsBql = "station:|slot:" + devicePath + "|bql:select slotPath, displayName, name from control:ControlPoint";
+                
+                baja.Ord.make(pointsBql).get().then(function(pointsTable) {
+                  let pointSlotPaths = [];
+                  
+                  pointsTable.cursor({
+                    limit: 200,
+                    each: function(record) {
+                      const slotPath = record.get('slotPath')?.toString();
+                      if (slotPath) {
+                        let cleanSlotPath = slotPath.toString().trim().replace(/^slot:/, '');
+                        pointSlotPaths.push(cleanSlotPath);
+                      }
+                    },
+                    after: function() {
+                      if (pointSlotPaths.length === 0) {
+                        resultDiv.innerHTML = '❌ Error: No control points found for device';
+                        return;
+                      }
+                      
+                      resultDiv.innerHTML = '✅ Found device: <strong style="color:#4CAF50;">' + deviceName + '</strong><br>' +
+                        'Found ' + pointSlotPaths.length + ' control points<br>' +
+                        'Subscribing to all points...';
+                      
+                      // Step 4: Build ORDs for all points
+                      const pointOrds = pointSlotPaths.map(function(slotPath) {
+                        const cleanPath = slotPath.startsWith('/') ? slotPath : '/' + slotPath;
+                        return 'station:|slot:' + cleanPath;
+                      });
+                      
+                      console.log('Subscribing to', pointOrds.length, 'points...');
+                      
+                      // Step 5: Create subscriber and subscribe to all points
+                      const subscriber = new baja.Subscriber();
+                      window.batchSubscriber = subscriber;
+                      window.batchPoints = [];
+                      window.batchUpdateCounts = {};
+                      
+                      // Resolve all points with subscriber
+                      const resolvePromises = pointOrds.map(function(ord) {
+                        return baja.Ord.make(ord).get({ subscriber: subscriber })
+                          .then(function(point) {
+                            window.batchPoints.push({
+                              point: point,
+                              ord: ord,
+                              name: point.getName ? point.getName() : 'unknown'
+                            });
+                            window.batchUpdateCounts[ord] = 0;
+                            return point;
+                          })
+                          .catch(function(err) {
+                            console.warn('Error resolving point:', ord, err);
+                            return null;
+                          });
+                      });
+                      
+                      Promise.all(resolvePromises).then(function(points) {
+                        const successfulPoints = points.filter(function(p) { return p !== null; });
+                        
+                        resultDiv.innerHTML = '✅ Subscribed to <strong style="color:#4CAF50;">' + successfulPoints.length + '</strong> points<br>' +
+                          'Device: ' + deviceName + '<br><br>' +
+                          '<div id="batchUpdates" style="max-height:300px; overflow-y:auto; font-size:12px;">' +
+                          '<div>Waiting for updates...</div>' +
+                          '</div>' +
+                          '<div id="batchSummary" style="margin-top:10px; font-size:11px; color:#888;">Total updates: 0</div>';
+                        
+                        // Attach changed handler for all points
+                        subscriber.attach('changed', function(prop) {
+                          if (prop && prop.getName && prop.getName() === 'out') {
+                            // Find which point this is
+                            const point = this;
+                            const pointInfo = window.batchPoints.find(function(p) { return p.point === point; });
+                            
+                            if (pointInfo) {
+                              try {
+                                const out = point.get('out');
+                                if (out) {
+                                  window.batchUpdateCounts[pointInfo.ord]++;
+                                  const parsed = parseValue(out.toString());
+                                  const pointName = pointInfo.name;
+                                  
+                                  // Update display
+                                  const updatesDiv = document.getElementById('batchUpdates');
+                                  const summaryDiv = document.getElementById('batchSummary');
+                                  
+                                  // Add update to list (keep last 20)
+                                  const updateText = pointName + ': ' + parsed.value + 
+                                    (parsed.status ? ' (' + parsed.status + ')' : '') + 
+                                    ' @ ' + new Date().toLocaleTimeString();
+                                  
+                                  if (updatesDiv.children.length > 20) {
+                                    updatesDiv.removeChild(updatesDiv.firstChild);
+                                  }
+                                  
+                                  const updateDiv = document.createElement('div');
+                                  updateDiv.textContent = updateText;
+                                  updateDiv.style.color = '#4CAF50';
+                                  updateDiv.style.marginBottom = '2px';
+                                  updatesDiv.appendChild(updateDiv);
+                                  
+                                  // Update summary
+                                  const totalUpdates = Object.values(window.batchUpdateCounts).reduce(function(sum, count) { return sum + count; }, 0);
+                                  summaryDiv.textContent = 'Total updates: ' + totalUpdates + ' | Points with updates: ' + 
+                                    Object.keys(window.batchUpdateCounts).filter(function(ord) { return window.batchUpdateCounts[ord] > 0; }).length;
+                                  
+                                  console.log('Update from', pointName + ':', parsed.value);
+                                }
+                              } catch(e) {
+                                console.error('Error processing update:', e);
+                              }
+                            }
+                          }
+                        });
+                        
+                        // Show stop button
+                        document.getElementById('stopBatchBtn').style.display = 'inline-block';
+                        
+                        console.log('✅ Batch subscription active - watching', successfulPoints.length, 'points');
+                      }).catch(function(err) {
+                        resultDiv.innerHTML = '❌ Error resolving points: ' + (err.message || err);
+                        console.error('❌ Batch Error:', err);
+                      });
+                    }
+                  });
+                }).catch(function(err) {
+                  resultDiv.innerHTML = '❌ Error getting control points: ' + (err.message || err);
+                  console.error('❌ Points BQL Error:', err);
+                });
+              });
+            }).catch(function(err) {
+              resultDiv.innerHTML = '❌ Error in batch resolve: ' + (err.message || err);
+              console.error('❌ Batch Resolve Error:', err);
+            });
+          }
+        });
+      }).catch(function(err) {
+        resultDiv.innerHTML = '❌ Error finding device: ' + (err.message || err);
+        console.error('❌ BQL Error:', err);
+      });
+    }
+  </script>
+</body>
+</html>

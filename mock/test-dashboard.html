@@ -1,0 +1,419 @@
+<!-- @noSnoop -->
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Dashboard Test - Mock Mode</title>
+  
+  <!-- Load Chart.js from CDN for local testing -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1"></script>
+  
+  <!-- Load mock BajaScript FIRST -->
+  <script src="mock-baja.js"></script>
+  
+  <!-- Load external CSS -->
+  <link rel="stylesheet" href="../css/dashboard-styles.css">
+  
+  <!-- Load external JavaScript modules -->
+  <script src="../js/dashboard-state.js"></script>
+  <script src="../js/ui-handlers.js"></script>
+  <script src="../js/drag-drop.js"></script>
+  <script src="../js/point-operations.js"></script>
+  <script src="../js/chart-utils.js"></script>
+  <script src="../js/alarm-utils.js"></script>
+  <script src="../js/discovery-utils.js"></script>
+  <script src="../js/loading-overlay.js"></script>
+  
+  <style>
+    /* Test mode banner */
+    .test-banner {
+      background: linear-gradient(90deg, #ff6b6b, #feca57);
+      color: #000;
+      padding: 8px 16px;
+      text-align: center;
+      font-weight: bold;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 10000;
+      font-size: 14px;
+    }
+    .test-banner button {
+      margin-left: 20px;
+      padding: 4px 12px;
+      background: #000;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    body {
+      padding-top: 40px !important;
+    }
+  </style>
+</head>
+<body>
+  <!-- Test mode banner -->
+  <div class="test-banner">
+    🎭 TEST MODE - Using mock data (no Niagara connection)
+    <button onclick="localStorage.clear(); location.reload();">Reset All Data</button>
+    <button onclick="console.log(window.DashboardState);">Log State</button>
+  </div>
+
+  <div class="container">
+    <h1 id="pageHeader">Universal Dashboard (Test Mode)</h1>
+    
+    <div class="tabs">
+      <button class="tab-btn active" onclick="window.switchTab('universal')">🌐 Universal Dashboard</button>
+      <button class="tab-btn" onclick="window.switchTab('multi')">Multi-View</button>
+      <button class="tab-btn" onclick="window.switchTab('alarmDashboard')">🚨 Alarm Dashboard</button>
+      <button class="tab-btn" onclick="window.switchTab('history')">History Chart</button>
+    </div>
+
+    <!-- GLOBAL STATUS -->
+    <div id="status" class="status">Loading mock data...</div>
+
+    <!-- UNIVERSAL DASHBOARD -->
+    <div id="universalDashboard" class="view-panel" style="display:block;">
+      <div class="dashboard-controls" style="margin-bottom:15px; display:flex; gap:10px; flex-wrap:wrap;">
+        <button class="action-btn" onclick="runMockDiscovery()" id="refreshDiscovery">
+          🔄 Refresh Discovery
+        </button>
+        <button class="action-btn" onclick="window.collapseAllDevices()">📁 Collapse All</button>
+        <button class="action-btn" onclick="window.showHiddenPoints()">👁️ Hidden Points</button>
+      </div>
+      
+      <!-- Dashboard content will be rendered here -->
+      <div id="universalDashboardContent"></div>
+    </div>
+
+    <!-- Other tabs (simplified for testing) -->
+    <div id="multiView" class="view-panel" style="display:none;">
+      <p>Multi-View tab - simplified for testing</p>
+    </div>
+    
+    <div id="alarmDashboard" class="view-panel" style="display:none;">
+      <p>Alarm Dashboard - simplified for testing</p>
+      <div id="alarmDashboardArea"></div>
+    </div>
+    
+    <div id="historyView" class="view-panel" style="display:none;">
+      <p>History Chart - simplified for testing</p>
+      <canvas id="myChart" style="max-height:400px;"></canvas>
+    </div>
+  </div>
+
+  <!-- Toast container -->
+  <div id="toastContainer" style="position:fixed; bottom:20px; right:20px; z-index:9999;"></div>
+
+  <!-- Loading overlay -->
+  <div id="loadingOverlay" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.8); z-index:9998; justify-content:center; align-items:center;">
+    <div style="text-align:center; color:white;">
+      <div id="loadingText" style="font-size:24px; margin-bottom:10px;">Loading...</div>
+      <div id="loadingSubtext" style="font-size:14px; color:#888;"></div>
+    </div>
+  </div>
+
+  <script>
+    // Global variables for the dashboard
+    let dashboardConfig = null;
+    let chartInstance = null;
+    
+    // Initialize mock dashboard
+    async function initMockDashboard() {
+      console.log('🎭 Initializing mock dashboard...');
+      
+      // Load saved config or use default mock config
+      dashboardConfig = await window.mockLoadConfig();
+      
+      // Initialize DashboardState
+      if (window.DashboardState) {
+        window.DashboardState.load();
+      }
+      
+      // Render the dashboard
+      window.updateDashboard();
+      
+      document.getElementById('status').textContent = '✅ Mock dashboard loaded - ' + 
+        (dashboardConfig.global?.snapshot?.length || 0) + ' devices';
+    }
+    
+    // Mock discovery function
+    async function runMockDiscovery() {
+      window.showLoadingOverlay('🔍 Running Mock Discovery...', 'Simulating device scan');
+      
+      await new Promise(r => setTimeout(r, 1000));
+      window.updateLoadingText('📦 Found 12 Devices', 'Processing...');
+      
+      await new Promise(r => setTimeout(r, 500));
+      window.hideLoadingOverlay();
+      
+      window.showToast('✅ Mock discovery complete!', 'success');
+      window.updateDashboard();
+    }
+    
+    // Simplified updateDashboard for testing UI - exposed on window for drag-drop.js
+    window.updateDashboard = function() {
+      const container = document.getElementById('universalDashboardContent');
+      if (!container) return;
+      
+      const snapshot = dashboardConfig?.global?.snapshot || [];
+      const groups = dashboardConfig?.global?.groups || {};
+      const zones = dashboardConfig?.global?.zones || {};
+      
+      // Get customization state - cardOrder is stored as { types: [], zones: [] }
+      const cardOrder = window.DashboardState?.cardOrder || { types: [], zones: [] };
+      const hiddenCards = window.DashboardState?.hiddenCards || {};
+      
+      // typeCardOrder stores IDs like "type_heatpump"
+      let typeCardOrder = cardOrder.types || [];
+      if (typeCardOrder.length === 0) {
+        typeCardOrder = Object.keys(groups).map(k => 'type_' + k);
+      }
+      let zoneCardOrder = cardOrder.zones || [];
+      if (zoneCardOrder.length === 0) {
+        zoneCardOrder = Object.keys(zones).map(z => 'zone_' + z);
+      }
+      
+      console.log('🔄 Rendering with typeCardOrder:', typeCardOrder);
+      
+      let html = '';
+      
+      // Debug: show render timestamp
+      html += '<div style="font-size:10px; color:#666; margin-bottom:5px;">Rendered: ' + new Date().toLocaleTimeString() + ' | Order: ' + typeCardOrder.slice(0,3).join(', ') + '...</div>';
+      
+      // === DEVICE TYPES SECTION ===
+      html += '<div class="section-header" onclick="window.toggleSection(\'types\', \'all\')" style="cursor:pointer;">';
+      html += '<h2 style="margin:0; text-align:left;">📊 Device Types</h2>';
+      html += '</div>';
+      html += '<div id="section_types_all" class="cards-container" style="display:flex; flex-wrap:wrap; gap:15px; padding:10px 0;">';
+      
+      typeCardOrder.forEach((cardId, idx) => {
+        // cardId is like "type_heatpump", extract just "heatpump" for groups lookup
+        const typeKey = cardId.replace('type_', '');
+        const devices = groups[typeKey] || [];
+        if (devices.length === 0) return;
+        if (hiddenCards[cardId]) return;
+        const displayName = window.getDeviceTypeDisplayName ? window.getDeviceTypeDisplayName(typeKey) : typeKey;
+        const icon = window.getDeviceTypeIcon ? window.getDeviceTypeIcon(typeKey) : '📟';
+        
+        html += '<div class="device-type-card" data-card-type="type" data-card-id="' + cardId + '" ';
+        html += 'draggable="true" ondragstart="window.handleCardDragStart(event, \'' + cardId + '\')" ';
+        html += 'ondragend="window.handleCardDragEnd(event)" ondragover="window.handleCardDragOver(event)" ';
+        html += 'ondrop="window.handleCardDrop(event)" style="order:' + idx + ';">';
+        
+        html += '<div class="card-header">';
+        html += '<span class="drag-handle" style="cursor:grab; margin-right:8px;">⋮⋮</span>';
+        html += '<span>' + icon + ' ' + displayName + ' (' + devices.length + ') <small style="color:#666;">[' + idx + ']</small></span>';
+        html += '<button onclick="event.stopPropagation(); window.quickHideCard(\'' + cardId + '\')" ';
+        html += 'style="background:none; border:none; color:#888; cursor:pointer; font-size:16px;" title="Hide card">✕</button>';
+        html += '</div>';
+        
+        html += '<div class="card-content">';
+        
+        // Render each device
+        devices.forEach(deviceOrd => {
+          const device = snapshot.find(d => d.ord === deviceOrd);
+          if (!device) return;
+          
+          const deviceId = device.originalName || device.name;
+          html += '<div class="device-row" onclick="window.toggleDevicePoints(\'' + deviceId + '\')" style="cursor:pointer;">';
+          html += '<span class="device-name">' + device.name + '</span>';
+          html += '<span class="device-zone" style="color:#888; font-size:11px;">' + (device.zone || '') + '</span>';
+          html += '</div>';
+          
+          // Points container (collapsed by default)
+          html += '<div id="devicePoints_' + deviceId + '" class="device-points" style="display:none; padding-left:20px;">';
+          html += '<div style="color:#888; font-size:11px;">Loading points...</div>';
+          html += '</div>';
+        });
+        
+        html += '</div></div>';
+      });
+      
+      html += '</div>';
+      
+      // === ZONES SECTION ===
+      html += '<div class="section-header" onclick="window.toggleSection(\'zones\', \'all\')" style="cursor:pointer; margin-top:20px;">';
+      html += '<h2 style="margin:0; text-align:left;">🏢 Zones</h2>';
+      html += '</div>';
+      html += '<div id="section_zones_all" class="cards-container" style="display:flex; flex-wrap:wrap; gap:15px; padding:10px 0;">';
+      
+      zoneCardOrder.forEach((cardId, idx) => {
+        // cardId is like "zone_Zone 1", extract the zone name
+        const zone = cardId.replace('zone_', '');
+        const devices = zones[zone] || [];
+        if (devices.length === 0) return;
+        if (hiddenCards[cardId]) return;
+        
+        html += '<div class="zone-card" data-card-type="zone" data-card-id="' + cardId + '" ';
+        html += 'draggable="true" ondragstart="window.handleCardDragStart(event, \'' + cardId + '\')" ';
+        html += 'ondragend="window.handleCardDragEnd(event)" ondragover="window.handleCardDragOver(event)" ';
+        html += 'ondrop="window.handleCardDrop(event)" style="order:' + idx + ';">';
+        
+        html += '<div class="card-header" onclick="event.stopPropagation(); window.toggleSection(\'zone\', \'' + zone + '\')">';
+        html += '<span class="drag-handle" style="cursor:grab; margin-right:8px;">⋮⋮</span>';
+        html += '<span>🏢 ' + zone + ' (' + devices.length + ')</span>';
+        html += '<button onclick="event.stopPropagation(); window.quickHideCard(\'' + cardId + '\')" ';
+        html += 'style="background:none; border:none; color:#888; cursor:pointer; font-size:16px;" title="Hide card">✕</button>';
+        html += '</div>';
+        
+        html += '<div id="section_zone_' + zone.replace(/\s+/g, '_') + '" class="card-content" style="max-height:300px; overflow-y:auto;">';
+        
+        devices.forEach(deviceOrd => {
+          const device = snapshot.find(d => d.ord === deviceOrd);
+          if (!device) return;
+          
+          html += '<div class="device-row">';
+          html += '<span class="device-name">' + device.name + '</span>';
+          html += '<span style="color:#666; font-size:11px;">' + (device.inferredType || '') + '</span>';
+          html += '</div>';
+        });
+        
+        html += '</div></div>';
+      });
+      
+      html += '</div>';
+      
+      // === ALL DEVICES SECTION ===
+      html += '<div class="section-header" onclick="window.toggleSection(\'all\', \'devices\')" style="cursor:pointer; margin-top:20px;">';
+      html += '<h2 style="margin:0; text-align:left;">📋 All Devices (' + snapshot.length + ')</h2>';
+      html += '</div>';
+      html += '<div id="section_all_devices" class="all-devices-container" style="display:flex; flex-wrap:wrap; gap:10px; padding:10px 0;">';
+      
+      snapshot.forEach((device, idx) => {
+        const pointData = JSON.stringify({
+          type: 'allDevices',
+          ord: device.ord,
+          name: device.name,
+          index: idx
+        });
+        const encodedData = encodeURIComponent(pointData);
+        
+        html += '<div class="point-item" draggable="true" ';
+        html += 'ondragstart="window.handlePointDragStart(event, \'' + encodedData + '\')" ';
+        html += 'ondragend="window.handlePointDragEnd(event)" ';
+        html += 'style="background:#2d2d2d; padding:8px 12px; border-radius:4px; cursor:grab;">';
+        html += '<span>' + device.name + '</span>';
+        html += '<span style="color:#666; font-size:10px; margin-left:8px;">' + (device.zone || '') + '</span>';
+        html += '</div>';
+      });
+      
+      html += '</div>';
+      
+      container.innerHTML = html;
+    }
+    
+    // Override toggleDevicePoints for mock mode
+    window.toggleDevicePoints = function(deviceId) {
+      const pointsDiv = document.getElementById('devicePoints_' + deviceId);
+      if (!pointsDiv) return;
+      
+      if (pointsDiv.style.display === 'none') {
+        // Show mock points
+        const snapshot = dashboardConfig?.global?.snapshot || [];
+        const device = snapshot.find(d => (d.originalName || d.name) === deviceId);
+        
+        if (device) {
+          const mockPoints = window.MOCK_POINTS?.[device.inferredType] || [
+            { name: 'Point1', displayName: 'Sample Point 1', value: '72.5' },
+            { name: 'Point2', displayName: 'Sample Point 2', value: '65.0' },
+            { name: 'Point3', displayName: 'Sample Point 3', value: 'true' },
+          ];
+          
+          let html = '';
+          mockPoints.forEach(pt => {
+            html += '<div class="point-row" style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid #333;">';
+            html += '<span>' + pt.displayName + '</span>';
+            html += '<span style="color:#4CAF50;">' + pt.value + (pt.unit || '') + '</span>';
+            html += '</div>';
+          });
+          
+          pointsDiv.innerHTML = html;
+        }
+        
+        pointsDiv.style.display = 'block';
+      } else {
+        pointsDiv.style.display = 'none';
+      }
+    };
+    
+    // Expose MOCK_POINTS globally for toggleDevicePoints
+    window.MOCK_POINTS = {
+      heatpump: [
+        { displayName: 'Space Temperature', value: '72.5', unit: '°F' },
+        { displayName: 'Supply Air Temp', value: '55.2', unit: '°F' },
+        { displayName: 'Fan Speed', value: '75', unit: '%' },
+        { displayName: 'Cooling Call', value: 'ON', unit: '' },
+      ],
+      ahu: [
+        { displayName: 'Supply Air Temp', value: '54.8', unit: '°F' },
+        { displayName: 'Return Air Temp', value: '73.2', unit: '°F' },
+        { displayName: 'OA Damper', value: '35', unit: '%' },
+        { displayName: 'Supply Fan', value: '85', unit: '%' },
+      ],
+      vav: [
+        { displayName: 'Space Temp', value: '71.8', unit: '°F' },
+        { displayName: 'Damper Position', value: '45', unit: '%' },
+        { displayName: 'Air Flow', value: '350', unit: 'CFM' },
+      ],
+      boiler: [
+        { displayName: 'Supply Water', value: '145', unit: '°F' },
+        { displayName: 'Return Water', value: '125', unit: '°F' },
+        { displayName: 'Firing Rate', value: '65', unit: '%' },
+      ],
+      pump: [
+        { displayName: 'Status', value: 'Running', unit: '' },
+        { displayName: 'Speed', value: '80', unit: '%' },
+        { displayName: 'Discharge PSI', value: '45', unit: 'PSI' },
+      ],
+      exhaustfan: [
+        { displayName: 'Status', value: 'Running', unit: '' },
+        { displayName: 'Speed', value: '100', unit: '%' },
+      ],
+    };
+    
+    // Override switchTab for mock mode
+    window.switchTab = function(tabId) {
+      // Hide all panels
+      document.querySelectorAll('.view-panel').forEach(panel => {
+        panel.style.display = 'none';
+      });
+      
+      // Deactivate all tab buttons
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.remove('active');
+      });
+      
+      // Show selected panel and activate button
+      const panelMap = {
+        'universal': 'universalDashboard',
+        'multi': 'multiView',
+        'alarmDashboard': 'alarmDashboard',
+        'history': 'historyView'
+      };
+      
+      const panelId = panelMap[tabId] || tabId;
+      const panel = document.getElementById(panelId);
+      if (panel) {
+        panel.style.display = 'block';
+      }
+      
+      // Find and activate the corresponding button
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        if (btn.textContent.toLowerCase().includes(tabId.toLowerCase()) ||
+            btn.onclick.toString().includes(tabId)) {
+          btn.classList.add('active');
+        }
+      });
+    };
+    
+    // Initialize on load
+    document.addEventListener('DOMContentLoaded', initMockDashboard);
+  </script>
+</body>
+</html>
+

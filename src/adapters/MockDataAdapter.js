@@ -122,46 +122,76 @@ class MockDataAdapter {
    * @private
    */
   _parseData() {
-    // Check if data has nested 'data' property (demo format)
-    const dataSource = this.data.data || this.data;
-    
-    // Extract equipment
-    if (dataSource.equipment && Array.isArray(dataSource.equipment)) {
-      this.equipment = dataSource.equipment;
-    } else if (dataSource.devices && Array.isArray(dataSource.devices)) {
-      // Alternative naming
-      this.equipment = dataSource.devices;
+    try {
+      // Check if data has nested 'data' property (demo format)
+      const dataSource = this.data.data || this.data;
+      
+      console.log('📊 Parsing data structure...', {
+        hasData: !!this.data,
+        hasNestedData: !!this.data.data,
+        dataKeys: Object.keys(dataSource || {})
+      });
+      
+      // Extract equipment
+      if (dataSource.equipment && Array.isArray(dataSource.equipment)) {
+        this.equipment = dataSource.equipment;
+        console.log(`✓ Found ${this.equipment.length} equipment`);
+      } else if (dataSource.devices && Array.isArray(dataSource.devices)) {
+        // Alternative naming
+        this.equipment = dataSource.devices;
+        console.log(`✓ Found ${this.equipment.length} devices`);
+      } else {
+        console.warn('⚠️  No equipment array found in data');
+        this.equipment = [];
+      }
+      
+      // Extract points
+      if (dataSource.points && Array.isArray(dataSource.points)) {
+        this.points = dataSource.points;
+        console.log(`✓ Found ${this.points.length} points`);
+      } else {
+        console.warn('⚠️  No points array found in data');
+        this.points = [];
+      }
+      
+      // Extract schedules (real data)
+      if (dataSource.schedules && Array.isArray(dataSource.schedules)) {
+        this.schedules = dataSource.schedules;
+      } else {
+        this.schedules = [];
+      }
+      
+      // Extract histories (real data)
+      if (dataSource.histories && Array.isArray(dataSource.histories)) {
+        this.histories = dataSource.histories;
+      } else {
+        this.histories = [];
+      }
+      
+      // Extract tagged components (real data)
+      if (dataSource.tags && dataSource.tags.tagData && Array.isArray(dataSource.tags.tagData)) {
+        this.taggedComponents = dataSource.tags.tagData;
+      } else if (dataSource.taggedComponents && Array.isArray(dataSource.taggedComponents)) {
+        this.taggedComponents = dataSource.taggedComponents;
+      } else if (dataSource.components && Array.isArray(dataSource.components)) {
+        this.taggedComponents = dataSource.components;
+      } else {
+        this.taggedComponents = [];
+      }
+      
+      // Normalize equipment structure
+      if (this.equipment.length > 0) {
+        this.equipment = this.equipment.map((equip, index) => this._normalizeEquipment(equip, index));
+      }
+      
+      // Normalize point structure
+      if (this.points.length > 0) {
+        this.points = this.points.map((point, index) => this._normalizePoint(point, index));
+      }
+    } catch (error) {
+      console.error('❌ Error parsing data:', error);
+      throw error;
     }
-    
-    // Extract points
-    if (dataSource.points && Array.isArray(dataSource.points)) {
-      this.points = dataSource.points;
-    }
-    
-    // Extract schedules (real data)
-    if (dataSource.schedules && Array.isArray(dataSource.schedules)) {
-      this.schedules = dataSource.schedules;
-    }
-    
-    // Extract histories (real data)
-    if (dataSource.histories && Array.isArray(dataSource.histories)) {
-      this.histories = dataSource.histories;
-    }
-    
-    // Extract tagged components (real data)
-    if (dataSource.tags && dataSource.tags.tagData && Array.isArray(dataSource.tags.tagData)) {
-      this.taggedComponents = dataSource.tags.tagData;
-    } else if (dataSource.taggedComponents && Array.isArray(dataSource.taggedComponents)) {
-      this.taggedComponents = dataSource.taggedComponents;
-    } else if (dataSource.components && Array.isArray(dataSource.components)) {
-      this.taggedComponents = dataSource.components;
-    }
-    
-    // Normalize equipment structure
-    this.equipment = this.equipment.map((equip, index) => this._normalizeEquipment(equip, index));
-    
-    // Normalize point structure
-    this.points = this.points.map((point, index) => this._normalizePoint(point, index));
   }
 
   /**

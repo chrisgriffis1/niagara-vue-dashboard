@@ -1,5 +1,9 @@
 <template>
   <div class="app-container">
+    <!-- Debug: Always show this to verify Vue is mounting -->
+    <div style="position: fixed; top: 0; left: 0; right: 0; background: #ef4444; color: white; padding: 10px; z-index: 9999; font-size: 12px;">
+      🐛 DEBUG: Vue is mounting | dataLoaded: {{ dataLoaded }} | stats: {{ stats ? 'loaded' : 'null' }}
+    </div>
     <header class="app-header">
       <h1>Niagara Dashboard</h1>
       <div class="header-status">
@@ -43,8 +47,12 @@
             <p class="status-ok">✓ Pinia state management ready</p>
             <p class="status-ok">✓ Chart.js installed</p>
             <p :class="dataLoaded ? 'status-ok' : 'status-warning'">
-              {{ dataLoaded ? '✓ Mock data loaded' : '⏳ Loading data...' }}
+              {{ dataLoaded ? '✓ Real Niagara data loaded' : '⏳ Loading data...' }}
             </p>
+            <div v-if="!dataLoaded" style="margin-top: 20px; padding: 20px; background: #1a1a1a; border-radius: 8px;">
+              <p style="color: #fbbf24;">Loading firstTryNeedsWork.json...</p>
+              <p style="color: #a0a0a0; font-size: 12px; margin-top: 10px;">Check browser console (F12) for details</p>
+            </div>
           </div>
           
           <!-- Quick Actions -->
@@ -87,16 +95,23 @@ const showBuildingView = ref(false)
 
 onMounted(async () => {
   try {
+    console.log('🚀 App mounting, initializing adapter...')
     // Initialize adapter with REAL data
     await adapter.switchDataset('real')
+    console.log('✓ Dataset switched to real')
     
     // Load building stats
     stats.value = await adapter.getBuildingStats()
+    console.log('✓ Building stats loaded:', stats.value)
     dataLoaded.value = true
     
     console.log('✓ App initialized with real Niagara data')
   } catch (error) {
-    console.error('Failed to initialize:', error)
+    console.error('❌ Failed to initialize:', error)
+    console.error('Error stack:', error.stack)
+    // Show error on screen
+    dataLoaded.value = false
+    alert(`Failed to load data: ${error.message}\n\nCheck console for details.`)
   }
 })
 
