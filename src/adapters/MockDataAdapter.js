@@ -19,12 +19,48 @@ class MockDataAdapter {
     this.subscribers = [];
     this.initialized = false;
     
-    // Dataset configuration
+    // Dataset configuration - can be extended with exported Niagara data
     this.availableDatasets = [
       { id: 'demo', name: 'Demo Data', file: '/mock-data/demo-site-profile.json.json' },
-      { id: 'real', name: 'Real Niagara Data (with histories)', file: '/mock-data/firstTryNeedsWork.json' }
+      { id: 'real', name: 'Real Niagara Data', file: '/mock-data/firstTryNeedsWork.json' }
     ];
     this.currentDataset = 'demo'; // Default to demo, can be switched
+    this.alarms = []; // Alarms from exported data
+    this.zones = []; // Zones from exported data
+    this.historyIdCache = new Map(); // History ID cache from export
+    
+    // Expose to window for debugging
+    if (typeof window !== 'undefined') {
+      window.mockAdapter = this;
+      console.log('💡 Debug: Use window.mockAdapter.getAvailableDatasets() to see datasets');
+    }
+  }
+  
+  /**
+   * Add a custom dataset (e.g., from Niagara export)
+   * @param {string} id - Unique ID for dataset
+   * @param {string} name - Display name
+   * @param {string} file - Path to JSON file in public/mock-data/
+   */
+  addDataset(id, name, file) {
+    // Don't add duplicates
+    if (this.availableDatasets.find(d => d.id === id)) {
+      console.warn(`Dataset ${id} already exists`);
+      return;
+    }
+    this.availableDatasets.push({ id, name, file });
+    console.log(`✅ Added dataset: ${name}`);
+  }
+  
+  /**
+   * Get all available datasets
+   */
+  getAvailableDatasets() {
+    return this.availableDatasets.map(d => ({
+      id: d.id,
+      name: d.name,
+      current: d.id === this.currentDataset
+    }));
   }
 
   /**
@@ -177,6 +213,53 @@ class MockDataAdapter {
         this.taggedComponents = dataSource.components;
       } else {
         this.taggedComponents = [];
+      }
+      
+      // Extract alarms (from Niagara export format)
+      if (dataSource.alarms && Array.isArray(dataSource.alarms)) {
+        this.alarms = dataSource.alarms;
+        console.log(`✓ Found ${this.alarms.length} alarms`);
+      } else {
+        this.alarms = [];
+      }
+      
+      // Extract zones (from Niagara export format)
+      if (dataSource.zones && Array.isArray(dataSource.zones)) {
+        this.zones = dataSource.zones;
+        console.log(`✓ Found ${this.zones.length} zones`);
+      } else {
+        this.zones = [];
+      }
+      
+      // Extract history ID cache (from Niagara export format)
+      if (dataSource.historyIdCache && Array.isArray(dataSource.historyIdCache)) {
+        this.historyIdCache.clear();
+        dataSource.historyIdCache.forEach(entry => {
+          if (entry.key && entry.historyId) {
+            this.historyIdCache.set(entry.key, entry.historyId);
+          }
+        });
+        console.log(`✓ Loaded ${this.historyIdCache.size} history IDs`);
+      }
+      
+      // Handle equipment with embedded points (Niagara export format)
+      // If equipment have points arrays, extract them
+      if (this.equipment.length > 0 && this.points.length === 0) {
+        const embeddedPoints = [];
+        this.equipment.forEach(equip => {
+          if (equip.points && Array.isArray(equip.points)) {
+            equip.points.forEach(p => {
+              embeddedPoints.push({
+                ...p,
+                equipmentId: equip.id
+              });
+            });
+          }
+        });
+        if (embeddedPoints.length > 0) {
+          this.points = embeddedPoints;
+          console.log(`✓ Extracted ${embeddedPoints.length} embedded points from equipment`);
+        }
       }
       
       // Normalize equipment structure
@@ -750,9 +833,10 @@ class MockDataAdapter {
   subscribeToAlarms(callback) {
     this.subscribers.push(callback);
     
-    // Simulate initial alarm state
+    // Return alarms from loaded data or generate mock
     setTimeout(() => {
-      callback(this._generateMockAlarms());
+      const alarms = this.getAlarms();
+      callback(alarms);
     }, 100);
     
     // Return unsubscribe function
@@ -762,6 +846,26 @@ class MockDataAdapter {
         this.subscribers.splice(index, 1);
       }
     };
+  }
+  
+  /**
+   * Get current alarms
+   */
+  getAlarms() {
+    // Return loaded alarms if available (from exported Niagara data)
+    if (this.alarms && this.alarms.length > 0) {
+      return this.alarms;
+    }
+    
+    // Generate mock alarms for demo data only
+    return this._generateMockAlarms();
+  }
+  
+  /**
+   * Get zones
+   */
+  getZones() {
+    return this.zones || [];
   }
 
   /**

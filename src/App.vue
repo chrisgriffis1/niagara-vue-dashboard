@@ -41,9 +41,25 @@
         <h1>Niagara Dashboard</h1>
         <div class="header-status">
           <span class="status-dot ok"></span>
-          <span>System Online</span>
+          <span>{{ isNiagaraEnv ? 'Live Station' : 'Local Dev' }}</span>
         </div>
       </div>
+      
+      <!-- Dataset Selector (only in local dev mode) -->
+      <div v-if="!isNiagaraEnv && availableDatasets.length > 0" class="dataset-selector">
+        <label>Dataset:</label>
+        <select v-model="currentDataset" @change="switchDataset">
+          <option v-for="ds in availableDatasets" :key="ds.id" :value="ds.id">
+            {{ ds.name }}
+          </option>
+        </select>
+      </div>
+      
+      <!-- Export Button (only in Niagara) -->
+      <button v-if="isNiagaraEnv" @click="exportData" class="export-btn" title="Export data for local testing">
+        📦 Export
+      </button>
+      
       <div class="persistence-controls">
         <button @click="saveCurrentLayout" :disabled="savingLayout">
           {{ savingLayout ? 'Saving…' : '💾 Save layout' }}
@@ -185,6 +201,11 @@ const showBuildingView = ref(false)
 const persistenceMessage = ref('')
 const savingLayout = ref(false)
 const loadingLayout = ref(false)
+
+// Environment and dataset state
+const isNiagaraEnv = ref(false)
+const availableDatasets = ref([])
+const currentDataset = ref('')
 
 // Loading overlay state
 const isLoading = ref(true)
@@ -338,6 +359,7 @@ onMounted(async () => {
       loadingProgress.value = 60
       
       console.log('✓ Niagara BQL Adapter initialized')
+      isNiagaraEnv.value = true
     } else {
       // Development - use mock adapter with real data
       loadingTitle.value = 'Loading Data'
@@ -348,6 +370,11 @@ onMounted(async () => {
       adapter = new MockDataAdapter()
       await adapter.switchDataset('real')
       console.log('✓ MockDataAdapter initialized with real dataset')
+      
+      isNiagaraEnv.value = false
+      // Get available datasets for selector
+      availableDatasets.value = adapter.getAvailableDatasets()
+      currentDataset.value = 'real'
     }
     
     loadingMessage.value = 'Preparing dashboard...'
@@ -420,6 +447,53 @@ const restoreLayout = async () => {
 
   persistenceMessage.value = state ? 'Layout restored' : 'No saved layout found'
   loadingLayout.value = false
+}
+
+// Switch dataset (local dev only)
+const switchDataset = async () => {
+  if (!adapter || isNiagaraEnv.value) return
+  
+  isLoading.value = true
+  loadingTitle.value = 'Switching Dataset'
+  loadingMessage.value = 'Loading new dataset...'
+  loadingProgress.value = 30
+  
+  try {
+    await adapter.switchDataset(currentDataset.value)
+    
+    loadingProgress.value = 60
+    
+    // Reload stats
+    stats.value = await adapter.getBuildingStats()
+    
+    loadingProgress.value = 80
+    
+    // Force devices to reload
+    await deviceStore.loadDevices()
+    
+    loadingProgress.value = 100
+    console.log(`✅ Switched to dataset: ${currentDataset.value}`)
+  } catch (error) {
+    console.error('Failed to switch dataset:', error)
+    alert(`Failed to switch dataset: ${error.message}`)
+  } finally {
+    setTimeout(() => {
+      isLoading.value = false
+    }, 300)
+  }
+}
+
+// Export data for local testing (Niagara only)
+const exportData = async () => {
+  if (!adapter || !isNiagaraEnv.value) return
+  
+  try {
+    console.log('📦 Starting export...')
+    await adapter.exportForLocalTesting()
+  } catch (error) {
+    console.error('Export failed:', error)
+    alert(`Export failed: ${error.message}`)
+  }
 }
 
 watch(() => deviceStore.selectedDevice?.id, () => {
@@ -657,6 +731,49 @@ const testAdapter = async () => {
 .persistence-message {
   font-size: var(--font-size-xs);
   color: rgba(255, 255, 255, 0.7);
+}
+
+/* Dataset Selector */
+.dataset-selector {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.dataset-selector label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.dataset-selector select {
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-primary);
+  padding: 0.35rem 0.75rem;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.dataset-selector select:hover {
+  border-color: var(--color-accent-primary);
+}
+
+/* Export Button */
+.export-btn {
+  background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.export-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
 }
 
 /* Loading Overlay */

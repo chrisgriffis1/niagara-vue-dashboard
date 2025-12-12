@@ -110,6 +110,96 @@ class NiagaraBQLAdapter {
   }
 
   /**
+   * Export ALL data for local testing (equipment, points, alarms, histories)
+   * Call from console: window.adapter.exportForLocalTesting()
+   */
+  async exportForLocalTesting() {
+    console.log('📦 Exporting data for local testing...');
+    
+    const exportData = {
+      exportDate: new Date().toISOString(),
+      stationName: 'Niagara Station Export',
+      equipment: [],
+      histories: [],
+      alarms: this.alarms || [],
+      zones: this.zones || []
+    };
+    
+    // Export all equipment with their points
+    console.log(`📦 Exporting ${this.equipment.length} equipment...`);
+    for (const equip of this.equipment) {
+      const equipExport = {
+        ...equip,
+        points: []
+      };
+      
+      // Try to get points for this equipment
+      try {
+        const points = await this.getPointsByEquipment(equip.id, { showAll: true });
+        equipExport.points = points.map(p => ({
+          id: p.id,
+          name: p.name,
+          displayName: p.displayName || p.name,
+          type: p.type,
+          value: p.value,
+          unit: p.unit,
+          slotPath: p.slotPath,
+          hasHistory: p.hasHistory || false,
+          historyId: p.historyId || null
+        }));
+      } catch (e) {
+        console.warn(`⚠️ Could not export points for ${equip.id}:`, e.message);
+      }
+      
+      exportData.equipment.push(equipExport);
+    }
+    
+    // Export history data from cache
+    console.log(`📦 Exporting history data...`);
+    const historyEntries = [];
+    this.historyIdCache.forEach((historyId, key) => {
+      historyEntries.push({ key, historyId });
+    });
+    exportData.historyIdCache = historyEntries;
+    
+    // Get cached history data from localStorage
+    const historyDataKeys = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('niagara-history-data-')) {
+        try {
+          const data = JSON.parse(localStorage.getItem(key));
+          historyDataKeys.push({
+            key: key.replace('niagara-history-data-', ''),
+            points: data.points || []
+          });
+        } catch (e) {}
+      }
+    }
+    exportData.histories = historyDataKeys;
+    
+    // Create and download JSON file
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `niagara-export-${Date.now()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    console.log('✅ Export complete!');
+    console.log(`   📦 Equipment: ${exportData.equipment.length}`);
+    console.log(`   🔔 Alarms: ${exportData.alarms.length}`);
+    console.log(`   📊 History IDs: ${historyEntries.length}`);
+    console.log(`   📈 History Data: ${historyDataKeys.length} cached`);
+    console.log('💡 Place the downloaded JSON in public/mock-data/ and add to MockDataAdapter.availableDatasets');
+    
+    return exportData;
+  }
+
+  /**
    * Get baja global (checks both global scope and window.baja)
    */
   _getBaja() {
@@ -192,14 +282,15 @@ class NiagaraBQLAdapter {
           });
         }
 
-        // IMMEDIATELY refresh alarms - don't wait for background
-        console.log('🔔 Fetching fresh alarms...');
-        this._startAlarmMonitoring().then(() => {
-          console.log('🔔 Fresh alarms loaded');
+        // BLOCKING: Load alarms before continuing - they MUST be ready for UI
+        console.log('🔔 Fetching fresh alarms (BLOCKING)...');
+        try {
+          await this._startAlarmMonitoring();
+          console.log(`🔔 Fresh alarms loaded: ${this.alarms.length} alarms`);
           this._saveToCache();
-        }).catch(err => {
+        } catch (err) {
           console.warn('⚠️ Alarm refresh failed:', err);
-        });
+        }
 
         // Set up auto-refresh for alarms every 10 minutes
         this._setupAlarmAutoRefresh();
@@ -259,13 +350,20 @@ class NiagaraBQLAdapter {
         console.warn('⚠️ Live subscriptions failed:', err)
       })
       
-      // Start alarm monitoring (non-blocking)
-      this._startAlarmMonitoring().catch(err => {
+      // BLOCKING: Load alarms - they MUST be ready for UI
+      console.log('🔔 Loading alarms (BLOCKING)...');
+      try {
+        await this._startAlarmMonitoring();
+        console.log(`🔔 Alarms loaded: ${this.alarms.length} alarms`);
+      } catch (err) {
         console.warn('⚠️ Alarm monitoring failed:', err)
-      })
+      }
       
       // Set up auto-refresh for alarms every 10 minutes
       this._setupAlarmAutoRefresh();
+      
+      // Update cache with alarms
+      this._saveToCache();
       
       // Start background loading of points with history (non-blocking)
       this._backgroundLoadHistoryPoints().catch(err => {
