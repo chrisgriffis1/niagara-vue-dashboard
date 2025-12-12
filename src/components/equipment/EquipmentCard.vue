@@ -51,7 +51,7 @@
     </div>
 
     <!-- Points List (only for regular equipment, not point-devices) -->
-    <div v-if="showPoints && !equipment.isPointDevice" class="points-section">
+    <div v-if="canShowPoints && !equipment.isPointDevice" class="points-section">
       <div class="points-header">
         <h4>Data Points</h4>
         <button 
@@ -156,7 +156,7 @@ const props = defineProps({
     type: Object,
     required: true
   },
-  showPoints: {
+  showPointsSection: {
     type: Boolean,
     default: true
   }
@@ -186,15 +186,15 @@ const pointCountLabel = computed(() => {
 })
 
 // Show points section for equipment with points (not point-devices)
-const showPoints = computed(() => {
+const canShowPoints = computed(() => {
   // Point-devices don't have sub-points
   if (props.equipment.isPointDevice) return false
   
   // Regular equipment with points
-  return props.equipment.pointCount > 0
+  return props.equipment.pointCount > 0 || !props.equipment.pointCount
 })
 
-const showToggleButton = computed(() => showPoints.value)
+const showToggleButton = computed(() => canShowPoints.value)
 
 // Get trendable points (numeric types)
 const trendablePoints = computed(() => {

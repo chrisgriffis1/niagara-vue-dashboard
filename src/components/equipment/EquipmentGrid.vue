@@ -278,12 +278,16 @@ const equipmentTypes = computed(() => {
 const equipmentLocations = computed(() => {
   const locations = [...new Set(equipmentList.value.map(e => e.location))]
     .filter(loc => {
-      // Filter out empty, "Unknown", and system values like "tstatLocation"
-      return loc && 
-             loc !== 'Unknown' && 
-             loc.toLowerCase() !== 'tstatlocation' &&
-             !loc.toLowerCase().includes('slot:') &&
-             !loc.toLowerCase().startsWith('/')
+      if (!loc) return false
+      const locLower = loc.toLowerCase()
+      // Filter out empty, "Unknown", and system values
+      return loc !== 'Unknown' && 
+             !locLower.includes('tstatlocation') &&
+             !locLower.includes('tstat_location') &&
+             !locLower.includes('slot:') &&
+             !locLower.startsWith('/') &&
+             !locLower.includes('location') && // Exclude any "Location" strings
+             loc.length > 1 // Exclude single characters
     })
   return locations.sort()
 })

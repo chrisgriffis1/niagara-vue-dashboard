@@ -1647,30 +1647,38 @@ class NiagaraBQLAdapter {
     this.alarmCallbacks = []
     
     try {
-      // Query current alarms using BQL with specific fields (not *)
-      // alarm:AlarmRecord schema requires explicit field selection
-      const alarmFields = "uuid, sourceState, ackState, alarmClass, timestamp, sourceName, alarmData"
+      // Try multiple alarm query approaches
+      // Niagara alarms can be queried via different paths
       const alarmQueries = [
-        `station:|slot:/Services/AlarmService|bql:select ${alarmFields} from alarm:AlarmRecord`,
-        `station:|slot:/|bql:select ${alarmFields} from alarm:AlarmRecord`
+        // Try direct AlarmService query
+        "alarm:|bql:select * from alarm:AlarmRecord where sourceState != 'normal'",
+        // Try from station root
+        "station:|slot:/Services/AlarmService|bql:select slotPath, sourceState, ackState, alarmClass, normalTime, alarmTime, ackTime, sourceName, alarmData from alarm:AlarmRecord",
+        // Alternative: query open alarms
+        "station:|slot:/Services/AlarmService/OpenAlarms|bql:select slotPath, sourceState, ackState, alarmClass, sourceName, alarmData from alarm:AlarmRecord"
       ]
       
       let table = null
+      let successQuery = null
       
       for (const query of alarmQueries) {
         try {
+          console.log(`🔔 Trying alarm query: ${query.substring(0, 60)}...`)
           table = await baja.Ord.make(query).get()
           if (table && table.cursor) {
-            console.log(`🔔 Using alarm query: ${query.substring(0, 80)}...`)
+            successQuery = query
+            console.log(`🔔 ✓ Alarm query succeeded`)
             break
+          } else {
+            console.log(`🔔 Query returned no table/cursor`)
           }
         } catch (e) {
-          console.log(`🔔 Alarm query failed, trying next...`)
+          console.log(`🔔 Query failed: ${e.message || e}`)
         }
       }
       
       if (!table || !table.cursor) {
-        console.log('🔔 No alarm service or alarms found - alarms may not be configured')
+        console.log('🔔 No alarms found via any query method')
         // Still notify callbacks with empty array
         if (this.alarmCallbacks && this.alarmCallbacks.length > 0) {
           this.alarmCallbacks.forEach(cb => {
@@ -1685,17 +1693,22 @@ class NiagaraBQLAdapter {
       const self = this
       
       await new Promise(resolve => {
+        let recordCount = 0
         table.cursor({
           limit: 100,
           each: function(record) {
+            recordCount++
             try {
-              const uuid = record.get('uuid')?.toString() || ''
+              // Try multiple field name variations
+              const uuid = record.get('uuid')?.toString() || record.get('slotPath')?.toString() || `alarm_${recordCount}`
               const sourceState = record.get('sourceState')?.toString() || ''
               const ackState = record.get('ackState')?.toString() || ''
               const alarmClass = record.get('alarmClass')?.toString() || ''
-              const timestamp = record.get('timestamp')?.toString() || ''
-              const sourceName = record.get('sourceName')?.toString() || ''
-              const alarmData = record.get('alarmData')?.toString() || ''
+              const timestamp = record.get('timestamp')?.toString() || record.get('alarmTime')?.toString() || ''
+              const sourceName = record.get('sourceName')?.toString() || record.get('source')?.toString() || ''
+              const alarmData = record.get('alarmData')?.toString() || record.get('msgText')?.toString() || ''
+              
+              console.log(`🔔 Alarm record: state=${sourceState}, source=${sourceName}`)
               
               // Parse priority from alarmClass
               let priority = 'normal'
