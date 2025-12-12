@@ -336,7 +336,8 @@ class NiagaraBQLAdapter {
     if (!baja) return
     
     try {
-      const historyBql = "station:|slot:/|bql:select slotPath as 'slotPath\\',id as 'id\\' from history:HistoryConfig"
+      // Include toString which often contains the history ID path when id is null
+      const historyBql = "station:|slot:/|bql:select slotPath as 'slotPath\\',id as 'id\\',toString as 'toString\\' from history:HistoryConfig"
       const table = await baja.Ord.make(historyBql).get()
       if (!table || !table.cursor) return
       
@@ -347,7 +348,11 @@ class NiagaraBQLAdapter {
           each: function(record) {
             try {
               const slotPath = record.get('slotPath')?.toString() || ''
-              const historyId = record.get('id')?.toString() || ''
+              // Try id first, then toString (which often contains the history path)
+              let historyId = record.get('id')?.toString() || ''
+              if (!historyId) {
+                historyId = record.get('toString')?.toString() || ''
+              }
               
               if (slotPath && historyId) {
                 // Extract equipment name and point name from slotPath
@@ -1521,15 +1526,22 @@ class NiagaraBQLAdapter {
             
             try {
               const id = record.get('id');
+              const toStr = record.get('To String'); // This often has the history ID path
               const slotPath = record.get('slotPath');
               
+              // Try id first, then toString (which often contains the history path)
+              let histId = id ? id.toString() : '';
+              if (!histId && toStr) {
+                histId = toStr.toString();
+              }
+              
               console.log(`     Found history record ${recordCount}:`);
-              console.log(`       ID: ${id ? id.toString() : 'null'}`);
+              console.log(`       ID: ${histId || 'null'}`);
               console.log(`       SlotPath: ${slotPath ? slotPath.toString() : 'null'}`);
               
               // Take the first match
-              if (id && !foundId) {
-                foundId = id.toString();
+              if (histId && !foundId) {
+                foundId = histId;
                 foundPath = slotPath ? slotPath.toString() : '';
               }
             } catch (e) {
@@ -2143,8 +2155,8 @@ class NiagaraBQLAdapter {
     console.log('🔄 Starting background history point loading...')
     
     try {
-      // Query all history configs - get both slotPath and ID for cache
-      const historyBql = "station:|slot:/|bql:select slotPath as 'slotPath\\',id as 'id\\' from history:HistoryConfig"
+      // Query all history configs - include toString which often has the history ID
+      const historyBql = "station:|slot:/|bql:select slotPath as 'slotPath\\',id as 'id\\',toString as 'toString\\' from history:HistoryConfig"
       
       const table = await baja.Ord.make(historyBql).get()
       if (!table || !table.cursor) {
@@ -2162,7 +2174,11 @@ class NiagaraBQLAdapter {
           each: function(record) {
             try {
               const slotPath = record.get('slotPath')?.toString() || ''
-              const historyId = record.get('id')?.toString() || ''
+              // Try id first, then toString (which often contains the history path)
+              let historyId = record.get('id')?.toString() || ''
+              if (!historyId) {
+                historyId = record.get('toString')?.toString() || ''
+              }
               
               if (slotPath && historyId) {
                 historyPaths.add(slotPath.toLowerCase())
