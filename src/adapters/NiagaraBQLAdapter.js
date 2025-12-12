@@ -286,6 +286,7 @@ class NiagaraBQLAdapter {
   /**
    * Discover point-devices (control points that act like equipment)
    * ExhFans, Freezers, Fridges, Heaters, Cooling Tower, etc.
+   * Also extracts location from path (e.g., "Dairy Fridge" from parent folder)
    * @private
    */
   async _discoverPointDevices(baja) {
@@ -295,7 +296,7 @@ class NiagaraBQLAdapter {
     const patterns = ['ExhFan', 'ExFan', 'Freezer', 'Fridge', 'Heater', 'TowerPlant', 'Tower', 'H20', 'Water'];
     const whereClause = patterns.map(p => `displayName like '*${p}*'`).join(' or ');
     
-    const bql = `station:|slot:/Drivers/BacnetNetwork|bql:select slotPath as 'slotPath\\',displayName as 'displayName\\',toString as 'toString\\' from control:ControlPoint where ${whereClause}`;
+    const bql = `station:|slot:/Drivers/BacnetNetwork|bql:select slotPath as 'slotPath\\',displayName as 'displayName\\',toString as 'toString\\',out as 'out\\' from control:ControlPoint where ${whereClause}`;
     
     try {
       const table = await baja.Ord.make(bql).get();
@@ -315,16 +316,15 @@ class NiagaraBQLAdapter {
             try {
               const slotPath = record.get('slotPath')?.toString() || '';
               const displayName = record.get('displayName')?.toString() || '';
+              const outValue = record.get('out')?.toString() || '';
               
               if (!slotPath || !displayName) return;
               
-              const cleanPath = slotPath.replace(/^slot:/, '').trim();
+              let cleanPath = slotPath.replace(/^slot:/, '').trim();
+              if (!cleanPath.startsWith('/')) cleanPath = '/' + cleanPath;
+              
               const pathParts = cleanPath.split('/').filter(p => p);
               const pointName = pathParts[pathParts.length - 1] || '';
-              
-              // Skip if this is a sub-point of existing equipment (like temp sensors)
-              // Only treat as equipment if it's the main control point
-              const nameLower = displayName.toLowerCase();
               
               // Match to category
               let category = null;
@@ -337,21 +337,76 @@ class NiagaraBQLAdapter {
               
               if (!category) return;
               
-              // Create unique ID - use displayName if available
+              // Create unique ID
               const equipId = displayName.replace(/\s+/g, '_') || pointName;
               
-              // Skip if we already have this equipment
+              // Skip if we already have this
               if (existingIds.has(equipId)) return;
               existingIds.add(equipId);
+              
+              // Extract location from path or displayName
+              // e.g., "Dairy Fridge CD8" -> location is in parent folder or displayName
+              let location = null;
+              
+              // Try to find location from parent folder name
+              // Path: /Drivers/BacnetNetwork/SomeDevice/points/Dairy/FridgeCD8
+              // The "Dairy" or device folder might indicate location
+              if (pathParts.length >= 4) {
+                // Look for meaningful folder names (not generic ones)
+                const skipFolders = ['drivers', 'bacnetnetwork', 'points', 'monitor', 'inputs', 'outputs'];
+                for (let i = pathParts.length - 2; i >= 0; i--) {
+                  const folder = pathParts[i].toLowerCase();
+                  if (!skipFolders.includes(folder) && folder.length > 2) {
+                    // Check if it's a device ID (like HP35) - skip those
+                    if (!/^(hp|ahu|mau|rtu|vav)\d+/i.test(pathParts[i])) {
+                      location = pathParts[i];
+                      break;
+                    }
+                  }
+                }
+              }
+              
+              // Extract location from displayName if present
+              // e.g., "Dairy Fridge CD8" -> "Dairy"
+              // e.g., "Kitchen ExFan37" -> "Kitchen"
+              if (!location) {
+                const nameMatch = displayName.match(/^([A-Za-z]+)\s+/);
+                if (nameMatch && nameMatch[1].length > 2) {
+                  const possibleLoc = nameMatch[1];
+                  // Check it's not the device type
+                  if (!/^(exh?fan|fridge|freezer|heater|tower|water|h20)/i.test(possibleLoc)) {
+                    location = possibleLoc;
+                  }
+                }
+              }
+              
+              // Get current value/status from 'out'
+              let currentValue = null;
+              let status = 'ok';
+              if (outValue) {
+                const valMatch = outValue.match(/^(.+?)\s*\{([^}]+)\}/);
+                if (valMatch) {
+                  currentValue = valMatch[1].trim();
+                  const statusStr = valMatch[2].toLowerCase();
+                  if (statusStr.includes('fault') || statusStr.includes('alarm')) {
+                    status = 'error';
+                  } else if (statusStr.includes('warn')) {
+                    status = 'warning';
+                  }
+                }
+              }
               
               self.equipment.push({
                 id: equipId,
                 name: displayName || pointName,
+                displayName: location ? `${location} - ${displayName}` : displayName,
                 type: category,
-                location: null,
+                location: location,
                 ord: cleanPath,
                 slotPath: cleanPath,
-                isPointDevice: true // Flag to indicate this is a point acting as equipment
+                isPointDevice: true,
+                currentValue: currentValue,
+                status: status
               });
               
               addedCount++;
@@ -1056,133 +1111,150 @@ class NiagaraBQLAdapter {
   }
 
   /**
-   * Start live subscriptions for equipment status monitoring
-   * Subscribes to key points (like online/offline status) for each equipment
+   * Start live status monitoring for equipment
+   * Queries status points directly via BQL (doesn't require pre-loaded points)
    * @private
    */
   async _startLiveSubscriptions() {
     const baja = this._getBaja()
-    if (!baja || !baja.Subscriber) {
-      console.warn('⚠️ Cannot start live subscriptions - Subscriber not available')
+    if (!baja) {
+      console.warn('⚠️ Cannot start status monitoring - baja not available')
       return
     }
     
-    console.log(`🔔 Starting live subscriptions for ${this.equipment.length} equipment...`)
+    console.log(`🔔 Querying equipment status...`)
     
     try {
-      // Create subscriber for live updates
-      const subscriber = new baja.Subscriber()
-      this.subscriber = subscriber
+      // Query for all status/fault/online points in one BQL call
+      const statusBql = "station:|slot:/Drivers/BacnetNetwork|bql:select slotPath as 'slotPath\\',displayName as 'displayName\\',out as 'out\\' from control:ControlPoint where displayName like '*online*' or displayName like '*fault*' or displayName like '*alarm*' or displayName like '*status*'"
       
-      // Subscribe to a sample of points from each equipment for status monitoring
-      // Limit to first 20 equipment to avoid overwhelming the system
-      const equipmentToMonitor = this.equipment.slice(0, 20)
-      const subscriptionPromises = []
-      
-      console.log(`  📊 Will monitor ${equipmentToMonitor.length} equipment`)
-      
-      for (const equip of equipmentToMonitor) {
-        const points = this.equipmentPointsMap.get(equip.id) || []
-        if (points.length === 0) {
-          console.log(`  ⚠️ No points found for equipment: ${equip.id}`)
-          continue
-        }
-        
-        // Find status-related points (online, fault, alarm, etc.)
-        const statusPoints = points.filter(p => {
-          const name = (p.name || '').toLowerCase()
-          return name.includes('online') || name.includes('fault') || 
-                 name.includes('alarm') || name.includes('status')
-        })
-        
-        // Subscribe to first status point found, or first point if none found
-        const pointToSubscribe = statusPoints[0] || points[0]
-        if (!pointToSubscribe || !pointToSubscribe.slotPath) {
-          console.log(`  ⚠️ No valid point to subscribe for equipment: ${equip.id}`)
-          continue
-        }
-        
-        // Create subscription promise
-        const subscriptionPromise = (async () => {
-          try {
-            let cleanSlotPath = pointToSubscribe.slotPath.toString().trim().replace(/^slot:/, '')
-            if (!cleanSlotPath.startsWith('/')) {
-              cleanSlotPath = '/' + cleanSlotPath
-            }
-            const pointOrd = 'station:|slot:' + cleanSlotPath
-            
-            console.log(`  🔌 Subscribing to ${pointToSubscribe.name} for ${equip.name}...`)
-            
-            // Subscribe to point
-            const pointComponent = await baja.Ord.make(pointOrd).get({ subscriber: subscriber })
-            this.subscribedPoints.set(equip.id, pointComponent)
-            
-            // Find the equipment object in the array by id
-            const equipIndex = this.equipment.findIndex(e => e.id === equip.id)
-            if (equipIndex === -1) {
-              console.warn(`  ⚠️ Equipment not found in array: ${equip.id}`)
-              return
-            }
-            
-            const equipRef = this.equipment[equipIndex]
-            
-            // Update equipment status based on point value
-            const updateStatus = () => {
-              try {
-                const out = pointComponent.get('out')
-                if (out) {
-                  const valueStr = out.toString().toLowerCase()
-                  // Check for offline/fault indicators
-                  if (valueStr.includes('offline') || valueStr.includes('fault') || 
-                      valueStr.includes('alarm') || valueStr === 'false' || valueStr === '0') {
-                    equipRef.status = 'error'
-                  } else if (valueStr.includes('warning')) {
-                    equipRef.status = 'warning'
-                  } else {
-                    equipRef.status = 'ok'
-                  }
-                  console.log(`  ✓ Status for ${equipRef.name}: ${equipRef.status} (value: ${valueStr})`)
-                }
-              } catch (e) {
-                console.warn(`  ❌ Error updating status for ${equip.id}:`, e)
-              }
-            }
-            
-            // Initial status check
-            updateStatus()
-            
-            // Listen for changes using regular function to preserve 'this' context
-            const self = this
-            subscriber.attach('changed', function(prop) {
-              // 'this' in the callback refers to the component that changed
-              if (prop && prop.getName && prop.getName() === 'out') {
-                // Check if this is the point we're monitoring
-                const navOrd = this.getNavOrd ? this.getNavOrd().toString() : ''
-                if (navOrd.includes(cleanSlotPath)) {
-                  console.log(`  🔄 Live update for ${equipRef.name}`)
-                  updateStatus()
-                }
-              }
-            })
-            
-            console.log(`  ✓ Subscribed to ${equip.name}`)
-            return equip.id
-          } catch (err) {
-            console.warn(`  ❌ Failed to subscribe to point for ${equip.id}:`, err)
-            return null
-          }
-        })()
-        
-        subscriptionPromises.push(subscriptionPromise)
+      const table = await baja.Ord.make(statusBql).get()
+      if (!table || !table.cursor) {
+        console.log('🔔 No status points found')
+        // Update status based on alarms instead
+        this._updateStatusFromAlarms()
+        return
       }
       
-      // Wait for all subscriptions to complete
-      const results = await Promise.all(subscriptionPromises)
-      const successCount = results.filter(r => r !== null).length
+      const statusPoints = []
+      const self = this
       
-      console.log(`✓ Started live subscriptions for ${successCount} equipment`)
+      await new Promise(resolve => {
+        table.cursor({
+          limit: 1000,
+          each: function(record) {
+            try {
+              const slotPath = record.get('slotPath')?.toString() || ''
+              const displayName = record.get('displayName')?.toString() || ''
+              const outValue = record.get('out')?.toString() || ''
+              
+              if (slotPath && outValue) {
+                statusPoints.push({
+                  path: slotPath.toLowerCase(),
+                  name: displayName,
+                  value: outValue.toLowerCase()
+                })
+              }
+            } catch (e) {}
+          },
+          after: function() {
+            resolve()
+          }
+        })
+      })
+      
+      console.log(`🔔 Found ${statusPoints.length} status points`)
+      
+      // Match status points to equipment and update status
+      let errorCount = 0
+      let warningCount = 0
+      
+      for (const equip of this.equipment) {
+        const equipIdLower = (equip.id || '').toLowerCase()
+        
+        // Find status points for this equipment
+        const equipStatusPoints = statusPoints.filter(sp => 
+          sp.path.includes('/' + equipIdLower + '/')
+        )
+        
+        if (equipStatusPoints.length > 0) {
+          // Check for any fault/offline/alarm conditions
+          let hasError = false
+          let hasWarning = false
+          
+          for (const sp of equipStatusPoints) {
+            const val = sp.value
+            const name = sp.name.toLowerCase()
+            
+            // Check for error conditions
+            if (name.includes('fault') || name.includes('alarm')) {
+              if (val.includes('true') || val.includes('active') || val === '1') {
+                hasError = true
+              }
+            } else if (name.includes('online')) {
+              if (val.includes('false') || val.includes('offline') || val === '0') {
+                hasError = true
+              }
+            } else if (name.includes('status')) {
+              if (val.includes('fault') || val.includes('alarm') || val.includes('error')) {
+                hasError = true
+              } else if (val.includes('warn')) {
+                hasWarning = true
+              }
+            }
+          }
+          
+          if (hasError) {
+            equip.status = 'error'
+            errorCount++
+          } else if (hasWarning) {
+            equip.status = 'warning'
+            warningCount++
+          } else {
+            equip.status = 'ok'
+          }
+        }
+      }
+      
+      // Also update status from alarms
+      this._updateStatusFromAlarms()
+      
+      console.log(`🔔 Status updated: ${errorCount} errors, ${warningCount} warnings, ${this.equipment.length - errorCount - warningCount} ok`)
+      
     } catch (error) {
-      console.warn('⚠️ Failed to start live subscriptions:', error)
+      console.warn('⚠️ Failed to query status:', error)
+      // Try to update from alarms as fallback
+      this._updateStatusFromAlarms()
+    }
+  }
+  
+  /**
+   * Update equipment status based on alarms
+   * @private
+   */
+  _updateStatusFromAlarms() {
+    if (!this.alarms || this.alarms.length === 0) return
+    
+    console.log(`🔔 Updating status from ${this.alarms.length} alarms...`)
+    
+    for (const alarm of this.alarms) {
+      const sourceStr = (alarm.source || '').toLowerCase()
+      
+      // Find equipment that matches this alarm source
+      for (const equip of this.equipment) {
+        const equipIdLower = (equip.id || '').toLowerCase()
+        const equipNameLower = (equip.name || '').toLowerCase()
+        
+        if (sourceStr.includes(equipIdLower) || sourceStr.includes(equipNameLower)) {
+          // Update status based on alarm priority
+          if (alarm.priority === 'critical') {
+            equip.status = 'error'
+          } else if (alarm.priority === 'warning' && equip.status !== 'error') {
+            equip.status = 'warning'
+          }
+          break
+        }
+      }
     }
   }
 
