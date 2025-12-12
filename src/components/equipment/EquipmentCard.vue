@@ -29,8 +29,8 @@
       </div>
     </div>
 
-    <!-- Sparkline (shown even when collapsed) -->
-    <div v-if="miniChartData.length > 0 && selectedMiniPoint" class="sparkline-section">
+    <!-- Sparkline (shown even when collapsed) - show loading state while fetching -->
+    <div v-if="loadingMiniChart || (miniChartData.length > 0 && selectedMiniPoint)" class="sparkline-section">
       <MiniChart 
         :data="miniChartData" 
         :color="getMiniChartColor()"
@@ -333,12 +333,16 @@ const loadMiniChartData = async () => {
     return
   }
   
+  // Show loading state immediately while fetching data
+  loadingMiniChart.value = true
+  
   try {
     // Load points if not already loaded
     let loadedPoints = points.value
     if (!loadedPoints || loadedPoints.length === 0) {
       loadedPoints = await deviceStore.loadDevicePoints(props.equipment.id, { showAll: true }) // Get ALL points to find history
       if (!loadedPoints || loadedPoints.length === 0) {
+        loadingMiniChart.value = false
         return // No points available
       }
     }
@@ -356,6 +360,7 @@ const loadMiniChartData = async () => {
       loadedPoints[0]
     
     if (!primaryPoint.value) {
+      loadingMiniChart.value = false
       return // No suitable point
     }
     
@@ -368,6 +373,7 @@ const loadMiniChartData = async () => {
     await loadMiniChartForPoint(selectedMiniPoint.value)
   } catch (error) {
     console.log(`Sparkline skipped for ${props.equipment.name}:`, error.message)
+    loadingMiniChart.value = false
   }
 }
 

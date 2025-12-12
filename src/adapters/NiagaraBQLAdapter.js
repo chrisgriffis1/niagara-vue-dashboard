@@ -816,11 +816,10 @@ class NiagaraBQLAdapter {
       points = await this._loadPointsForEquipment(equipmentId);
     }
     
-    // Tesla-style filtering - only show important points by default
-    let filteredPoints = points;
-    if (!options.showAll) {
-      filteredPoints = this._filterAndPrioritizePoints(points);
-    }
+    // Tesla-style filtering - ALWAYS filter out junk, showAll just removes the limit
+    // When showAll=true, show all NON-junk points (no 10-point limit)
+    // When showAll=false, show top 10 priority points
+    const filteredPoints = this._filterAndPrioritizePoints(points, options.showAll);
     
     return filteredPoints.map(point => ({
       id: point.id,
@@ -842,10 +841,12 @@ class NiagaraBQLAdapter {
   /**
    * Tesla-style: Filter and prioritize points
    * HIGH: Points with history, status points, non-prefixed names
-   * LOW: nvo_, nvi_, no_, inhibit prefixed points
+   * LOW: nvo_, nvi_, no_, inhibit prefixed points (ALWAYS excluded even with showAll)
+   * @param {Array} points - All points to filter
+   * @param {boolean} showAll - If true, show ALL non-junk points (no 10 limit)
    * @private
    */
-  _filterAndPrioritizePoints(points) {
+  _filterAndPrioritizePoints(points, showAll = false) {
     // Define low-priority prefixes (BACnet network variables, internal points, config, etc.)
     // Exact names to exclude (case-insensitive)
     const lowPriorityExact = [
@@ -904,11 +905,13 @@ class NiagaraBQLAdapter {
       }
     });
     
-    // Return high priority first, then normal - skip low priority by default
-    // Limit to top 10 for clean UI
-    const result = [...highPriority, ...normalPriority].slice(0, 10);
+    // Return high priority first, then normal - ALWAYS skip low priority junk
+    // showAll=true: return ALL non-junk points
+    // showAll=false: return TOP 10 non-junk points
+    const allGoodPoints = [...highPriority, ...normalPriority];
+    const result = showAll ? allGoodPoints : allGoodPoints.slice(0, 10);
     
-    console.log(`  📊 Filtered points: ${highPriority.length} high, ${normalPriority.length} normal, ${lowPriority.length} low (showing ${result.length})`);
+    console.log(`  📊 Filtered points: ${highPriority.length} high, ${normalPriority.length} normal, ${lowPriority.length} junk (showing ${result.length}${showAll ? ' - ALL' : ''})`);
     
     return result;
   }
