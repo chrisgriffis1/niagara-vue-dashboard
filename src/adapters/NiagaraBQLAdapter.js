@@ -430,12 +430,13 @@ class NiagaraBQLAdapter {
                 name: displayName || pointName,
                 displayName: location ? `${location} - ${displayName}` : displayName,
                 type: category,
-                location: location,
+                location: location || 'Unknown',
                 ord: cleanPath,
                 slotPath: cleanPath,
                 isPointDevice: true,
                 currentValue: currentValue,
-                status: status
+                status: status,
+                pointCount: 0 // Point-devices don't have sub-points, they ARE the point
               });
               
               addedCount++;
@@ -1646,17 +1647,26 @@ class NiagaraBQLAdapter {
     this.alarmCallbacks = []
     
     try {
-      // Query current alarms using BQL - try multiple approaches
-      // First try AlarmService
-      let alarmBql = "station:|slot:/Services/AlarmService|bql:select * from alarm:AlarmRecord"
+      // Query current alarms using BQL with specific fields (not *)
+      // alarm:AlarmRecord schema requires explicit field selection
+      const alarmFields = "uuid, sourceState, ackState, alarmClass, timestamp, sourceName, alarmData"
+      const alarmQueries = [
+        `station:|slot:/Services/AlarmService|bql:select ${alarmFields} from alarm:AlarmRecord`,
+        `station:|slot:/|bql:select ${alarmFields} from alarm:AlarmRecord`
+      ]
       
-      let table = await baja.Ord.make(alarmBql).get()
+      let table = null
       
-      // If no table, try querying from station root
-      if (!table || !table.cursor) {
-        console.log('🔔 Trying alternative alarm query...')
-        alarmBql = "station:|slot:/|bql:select * from alarm:AlarmRecord"
-        table = await baja.Ord.make(alarmBql).get()
+      for (const query of alarmQueries) {
+        try {
+          table = await baja.Ord.make(query).get()
+          if (table && table.cursor) {
+            console.log(`🔔 Using alarm query: ${query.substring(0, 80)}...`)
+            break
+          }
+        } catch (e) {
+          console.log(`🔔 Alarm query failed, trying next...`)
+        }
       }
       
       if (!table || !table.cursor) {

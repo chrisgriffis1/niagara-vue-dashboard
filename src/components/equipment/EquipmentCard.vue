@@ -41,8 +41,17 @@
       />
     </div>
 
-    <!-- Points List -->
-    <div v-if="showPoints" class="points-section">
+    <!-- Point-Device Value Display (for devices that ARE points) -->
+    <div v-if="equipment.isPointDevice && equipment.currentValue" class="point-device-value">
+      <div class="device-value-label">Current Value</div>
+      <div class="device-value-display">
+        <span class="value">{{ equipment.currentValue }}</span>
+        <span v-if="equipment.unit" class="unit">{{ equipment.unit }}</span>
+      </div>
+    </div>
+
+    <!-- Points List (only for regular equipment, not point-devices) -->
+    <div v-if="showPoints && !equipment.isPointDevice" class="points-section">
       <div class="points-header">
         <h4>Data Points</h4>
         <button 
@@ -176,7 +185,16 @@ const pointCountLabel = computed(() => {
   return 'Tap to load'
 })
 
-const showToggleButton = computed(() => true)
+// Show points section for equipment with points (not point-devices)
+const showPoints = computed(() => {
+  // Point-devices don't have sub-points
+  if (props.equipment.isPointDevice) return false
+  
+  // Regular equipment with points
+  return props.equipment.pointCount > 0
+})
+
+const showToggleButton = computed(() => showPoints.value)
 
 // Get trendable points (numeric types)
 const trendablePoints = computed(() => {
@@ -565,6 +583,40 @@ watch(() => props.equipment.id, () => {
   border-radius: 8px;
   height: 60px;
   overflow: hidden;
+}
+
+/* Point-Device Value Display */
+.point-device-value {
+  margin: var(--spacing-md) 0;
+  padding: var(--spacing-md);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(147, 51, 234, 0.1));
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: var(--radius-lg);
+}
+
+.device-value-label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: var(--spacing-xs);
+}
+
+.device-value-display {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-sm);
+}
+
+.device-value-display .value {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-accent-primary);
+}
+
+.device-value-display .unit {
+  font-size: var(--font-size-md);
+  color: var(--color-text-secondary);
 }
 
 /* Mini Chart Section - Tesla style sparkline */
