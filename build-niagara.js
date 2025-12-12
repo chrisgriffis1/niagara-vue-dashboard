@@ -57,7 +57,39 @@ function copyRecursive(src, dest) {
 copyRecursive(distDir, fileDir);
 console.log('✅ Files copied\n');
 
-// Step 3: Create README for deployment
+// Step 3: Add @noSnoop directives to all JS and CSS files
+console.log('📝 Step 3: Adding @noSnoop directives...');
+function addNoSnoopToFiles(dir) {
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  
+  for (const entry of entries) {
+    const filePath = path.join(dir, entry.name);
+    
+    if (entry.isDirectory()) {
+      addNoSnoopToFiles(filePath);
+    } else if (entry.isFile()) {
+      const ext = path.extname(entry.name).toLowerCase();
+      
+      if (ext === '.js' || ext === '.css') {
+        let content = fs.readFileSync(filePath, 'utf-8');
+        
+        // Check if @noSnoop already exists
+        if (!content.includes('@noSnoop')) {
+          // Add @noSnoop at the very beginning
+          const directive = ext === '.js' ? '/* @noSnoop */\n' : '/* @noSnoop */\n';
+          content = directive + content;
+          fs.writeFileSync(filePath, content, 'utf-8');
+          console.log(`   ✓ Added @noSnoop to ${entry.name}`);
+        }
+      }
+    }
+  }
+}
+
+addNoSnoopToFiles(fileDir);
+console.log('✅ @noSnoop directives added\n');
+
+// Step 4: Create README for deployment
 const readmeContent = `# Niagara Vue Dashboard Module
 
 ## Deployment Instructions
@@ -87,7 +119,7 @@ and use the NiagaraBQLAdapter for live data, or MockDataAdapter for development.
 
 fs.writeFileSync(path.join(niagaraDir, 'README.txt'), readmeContent);
 
-// Step 4: Create deployment zip (if zip command available)
+// Step 5: Create deployment zip (if zip command available)
 console.log('📦 Step 4: Creating deployment package...');
 try {
   const zipPath = path.join(__dirname, 'niagara-dashboard-deploy.zip');
