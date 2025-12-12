@@ -211,11 +211,19 @@
       <p>Loading equipment...</p>
     </div>
 
-    <!-- Empty State -->
-    <div v-else-if="!loading && filteredEquipment.length === 0" class="empty-state card">
+    <!-- Empty State (only if NO equipment loaded at all) -->
+    <div v-else-if="!loading && equipmentList.length === 0" class="empty-state card">
       <p>No equipment found</p>
       <button @click="refreshEquipment" class="primary">
         Load Equipment
+      </button>
+    </div>
+
+    <!-- No Results State (equipment loaded but filtered out) -->
+    <div v-else-if="filteredEquipment.length === 0" class="empty-state card">
+      <p>No equipment matches your filters</p>
+      <button @click="clearFilters" class="secondary">
+        Clear Filters
       </button>
     </div>
 
@@ -266,9 +274,17 @@ const equipmentTypes = computed(() => {
   return types.sort()
 })
 
-// Get unique locations
+// Get unique locations (filter out tstatLocation and other system values)
 const equipmentLocations = computed(() => {
   const locations = [...new Set(equipmentList.value.map(e => e.location))]
+    .filter(loc => {
+      // Filter out empty, "Unknown", and system values like "tstatLocation"
+      return loc && 
+             loc !== 'Unknown' && 
+             loc.toLowerCase() !== 'tstatlocation' &&
+             !loc.toLowerCase().includes('slot:') &&
+             !loc.toLowerCase().startsWith('/')
+    })
   return locations.sort()
 })
 
