@@ -30,10 +30,11 @@ class NiagaraBQLAdapter {
       const cacheData = {
         timestamp: Date.now(),
         equipment: this.equipment,
+        alarms: this.alarms || [],
         // Don't cache points - they're loaded on demand
       };
       localStorage.setItem(this.cacheKey, JSON.stringify(cacheData));
-      console.log('💾 Saved equipment to cache');
+      console.log('💾 Saved equipment and alarms to cache');
     } catch (e) {
       console.warn('⚠️ Failed to save cache:', e);
     }
@@ -49,9 +50,9 @@ class NiagaraBQLAdapter {
       if (!cached) return null;
       
       const data = JSON.parse(cached);
-      // Cache expires after 1 hour
-      if (Date.now() - data.timestamp > 60 * 60 * 1000) {
-        console.log('📦 Cache expired, refreshing...');
+      // Cache expires after 4 hours
+      if (Date.now() - data.timestamp > 4 * 60 * 60 * 1000) {
+        console.log('📦 Cache expired (>4 hours), refreshing...');
         return null;
       }
       
@@ -101,25 +102,52 @@ class NiagaraBQLAdapter {
       // Try to load from cache first for instant startup
       const cached = this._loadFromCache();
       if (cached && cached.equipment && cached.equipment.length > 0) {
-        console.log('📦 Using cached equipment data...');
+        console.log('⚡ Using cached data - INSTANT LOAD!');
         this.equipment = cached.equipment;
+        this.alarms = cached.alarms || [];
         console.log(`✓ Loaded ${this.equipment.length} equipment from cache`);
         
-        // Refresh data in background
-        this._discoverAllEquipment().then(() => {
-          this._saveToCache();
-          console.log('✓ Background refresh complete');
-        }).catch(e => console.warn('Background refresh failed:', e));
-      } else {
-        // Tesla-style: Only discover equipment at startup - FAST!
-        // Points load lazily when user expands equipment card
-        console.log('📡 Discovering equipment...');
-        await this._discoverAllEquipment();
-        console.log(`✓ Found ${this.equipment.length} equipment items`);
+        // Notify alarm callbacks if we have cached alarms
+        if (this.alarms.length > 0 && this.alarmCallbacks && this.alarmCallbacks.length > 0) {
+          this.alarmCallbacks.forEach(cb => {
+            try {
+              cb(this.alarms)
+            } catch (e) {}
+          })
+        }
         
-        // Save to cache
-        this._saveToCache();
+        // Mark as initialized immediately for instant UI
+        this.initialized = true;
+        
+        // Refresh data in background (non-blocking, silent)
+        setTimeout(() => {
+          Promise.all([
+            this._discoverAllEquipment(),
+            this._discoverLocations(),
+            this._startLiveSubscriptions(),
+            this._startAlarmMonitoring(),
+            this._backgroundLoadHistoryPoints()
+          ]).then(() => {
+            this._saveToCache();
+            console.log('✓ Background refresh complete');
+          }).catch(e => console.warn('Background refresh failed:', e));
+        }, 500); // Small delay to let UI render first
+        
+        return true; // Exit early - we're done!
       }
+      
+      // No cache - do full discovery
+      console.log('📡 No cache - discovering equipment...');
+      // No cache - do full discovery
+      console.log('📡 No cache - discovering equipment...');
+      
+      // Tesla-style: Only discover equipment at startup - FAST!
+      // Points load lazily when user expands equipment card
+      await this._discoverAllEquipment();
+      console.log(`✓ Found ${this.equipment.length} equipment items`);
+      
+      // Save to cache
+      this._saveToCache();
       
       // Discover locations BLOCKING - needed for equipment names
       try {
@@ -1169,6 +1197,7 @@ class NiagaraBQLAdapter {
       // Match status points to equipment and update status
       let errorCount = 0
       let warningCount = 0
+      let okCount = 0
       
       for (const equip of this.equipment) {
         const equipIdLower = (equip.id || '').toLowerCase()
@@ -1189,7 +1218,7 @@ class NiagaraBQLAdapter {
             
             // Check for error conditions
             if (name.includes('fault') || name.includes('alarm')) {
-              if (val.includes('true') || val.includes('active') || val === '1') {
+              if (val.includes('true') || val.includes('active') || val === '1' || val.includes('fault')) {
                 hasError = true
               }
             } else if (name.includes('online')) {
@@ -1197,7 +1226,7 @@ class NiagaraBQLAdapter {
                 hasError = true
               }
             } else if (name.includes('status')) {
-              if (val.includes('fault') || val.includes('alarm') || val.includes('error')) {
+              if (val.includes('fault') || val.includes('alarm') || val.includes('error') || val.includes('fail')) {
                 hasError = true
               } else if (val.includes('warn')) {
                 hasWarning = true
@@ -1213,14 +1242,18 @@ class NiagaraBQLAdapter {
             warningCount++
           } else {
             equip.status = 'ok'
+            okCount++
           }
+        } else {
+          // No status points - default to ok
+          okCount++
         }
       }
       
       // Also update status from alarms
       this._updateStatusFromAlarms()
       
-      console.log(`🔔 Status updated: ${errorCount} errors, ${warningCount} warnings, ${this.equipment.length - errorCount - warningCount} ok`)
+      console.log(`🔔 Status updated: ${errorCount} errors, ${warningCount} warnings, ${okCount} ok`)
       
     } catch (error) {
       console.warn('⚠️ Failed to query status:', error)

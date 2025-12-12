@@ -285,38 +285,52 @@ const loadMiniChartData = async () => {
   try {
     // Load points if not already loaded
     if (!points.value || points.value.length === 0) {
-      await loadPoints(false) // Load filtered points
+      const loadedPoints = await deviceStore.loadDevicePoints(props.equipment.id, { showAll: false })
+      if (!loadedPoints || loadedPoints.length === 0) {
+        return // No points available
+      }
+      // Don't set points.value here - let the user expand to see points
+      // Just use for sparkline selection
+      
+      // Pick primary point (first one with history, or first trendable, or first numeric)
+      primaryPoint.value = loadedPoints.find(p => p.hasHistory && p.trendable) ||
+                            loadedPoints.find(p => p.trendable && ['Temperature', 'Pressure', 'Flow'].includes(p.type)) ||
+                            loadedPoints.find(p => p.trendable) ||
+                            loadedPoints[0]
+    } else {
+      // Points already loaded from expansion
+      primaryPoint.value = points.value.find(p => p.hasHistory && p.trendable) ||
+                            points.value.find(p => getPointAlarm(p)) || 
+                            points.value.find(p => ['Temperature', 'Pressure', 'Flow'].includes(p.type)) ||
+                            points.value.find(p => p.trendable) ||
+                            points.value[0]
     }
     
-    if (!points.value || points.value.length === 0) {
-      return // No points available
+    if (!primaryPoint.value) {
+      return // No suitable point
     }
-    
-    // Pick primary point (first one with history, or first trendable, or first numeric)
-    primaryPoint.value = points.value.find(p => p.hasHistory && p.trendable) ||
-                          points.value.find(p => getPointAlarm(p)) || 
-                          points.value.find(p => ['Temperature', 'Pressure', 'Flow'].includes(p.type)) ||
-                          points.value.find(p => p.trendable) ||
-                          points.value[0]
-    
-    if (!primaryPoint.value) return
     
     // Set as selected mini point
     selectedMiniPoint.value = primaryPoint.value
     
-    // Load history data for sparkline
+    // Load history data for sparkline (silently fail if no history)
     await loadMiniChartForPoint(selectedMiniPoint.value)
   } catch (error) {
-    console.error('Failed to load mini-chart data:', error)
+    // Silently skip sparkline if it fails - not critical
+    console.log(`Sparkline skipped for ${props.equipment.name}:`, error.message)
   }
 }
 
 // Auto-load sparkline when component mounts
 onMounted(async () => {
-  // Small delay to let card render, then load sparkline
-  setTimeout(() => {
-    loadMiniChartData()
-  }, 200)
+  // Delay to let card render and adapter initialize
+  setTimeout(async () => {
+    try {
+      await loadMiniChartData()
+    } catch (e) {
+      console.log(`Sparkline load skipped for ${props.equipment.name}:`, e.message)
+    }
+  }, 500) // Longer delay to ensure adapter is ready
 })
 
 // Load mini-chart for specific point
