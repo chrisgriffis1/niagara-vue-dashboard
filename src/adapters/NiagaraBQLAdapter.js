@@ -1977,11 +1977,13 @@ class NiagaraBQLAdapter {
               let sourceName = record.get('sourceName')?.toString() || ''
               let toState = ''
               let presentValue = ''
+              let alarmData = ''
               
               // Try to get alarmData fields
               try {
                 const alarmDataObj = record.get('alarmData')
                 if (alarmDataObj) {
+                  alarmData = alarmDataObj.toString?.() || ''
                   if (!sourceName) {
                     sourceName = alarmDataObj.get?.('sourceName')?.toString() || alarmDataObj.sourceName || ''
                   }
@@ -1991,9 +1993,15 @@ class NiagaraBQLAdapter {
               } catch (e) {
                 // alarmData might be a string
                 const alarmDataStr = record.get('alarmData')?.toString() || ''
+                alarmData = alarmDataStr
                 if (alarmDataStr && !sourceName) {
                   sourceName = alarmDataStr
                 }
+              }
+              
+              // Also try alarmData.sourceName directly from BQL
+              if (!sourceName) {
+                sourceName = record.get('alarmData.sourceName')?.toString() || ''
               }
               
               // Skip if normal state
@@ -2002,6 +2010,7 @@ class NiagaraBQLAdapter {
               }
               
               console.log(`🔔 Alarm: class=${alarmClass}, state=${sourceState || toState}, source=${sourceName}`)
+              console.log(`🔔 DEBUG: sourceState="${sourceState}", toState="${toState}", will push alarm`)
               
               // Parse priority from alarmClass
               let priority = 'normal'
@@ -2039,20 +2048,24 @@ class NiagaraBQLAdapter {
                 }
               }
               
-              self.alarms.push({
+              const alarmObj = {
                 id: uuid || `alarm_${Date.now()}_${Math.random()}`,
                 source: sourceName,
                 message: alarmData || sourceName || 'Alarm',
                 priority: priority,
-                state: sourceState,
+                state: sourceState || toState,
                 ackState: ackState,
                 timestamp: alarmTimestamp.toISOString(),
                 alarmClass: alarmClass,
                 active: true, // All queried alarms are active
                 acknowledged: ackState && ackState.toLowerCase().includes('ack'),
                 equipmentId: equipmentId
-              })
-            } catch (e) {}
+              }
+              self.alarms.push(alarmObj)
+              console.log(`🔔 DEBUG: Pushed alarm, total now: ${self.alarms.length}`)
+            } catch (e) {
+              console.warn(`🔔 DEBUG: Error pushing alarm:`, e)
+            }
           },
           after: function() {
             resolve()
