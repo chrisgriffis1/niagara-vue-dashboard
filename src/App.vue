@@ -5,10 +5,21 @@
       🐛 DEBUG: Vue is mounting | dataLoaded: {{ dataLoaded }} | stats: {{ stats ? 'loaded' : 'null' }}
     </div>
     <header class="app-header">
-      <h1>Niagara Dashboard</h1>
-      <div class="header-status">
-        <span class="status-dot ok"></span>
-        <span>System Online</span>
+      <div>
+        <h1>Niagara Dashboard</h1>
+        <div class="header-status">
+          <span class="status-dot ok"></span>
+          <span>System Online</span>
+        </div>
+      </div>
+      <div class="persistence-controls">
+        <button @click="saveCurrentLayout" :disabled="savingLayout">
+          {{ savingLayout ? 'Saving…' : '💾 Save layout' }}
+        </button>
+        <button @click="restoreLayout" :disabled="loadingLayout">
+          {{ loadingLayout ? 'Loading…' : '↻ Restore layout' }}
+        </button>
+        <span class="persistence-message">{{ persistenceMessage }}</span>
       </div>
     </header>
 
@@ -83,11 +94,17 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import MockDataAdapter from './adapters/MockDataAdapter'
 import NiagaraBQLAdapter from './adapters/NiagaraBQLAdapter'
 import BuildingView from './views/BuildingView.vue'
 import { useDeviceStore } from './stores/deviceStore'
+import {
+  cacheDashboardState,
+  loadCachedDashboardState,
+  saveStateToStation,
+  loadStateFromStation
+} from './services/persistenceService'
 
 // Auto-detect Niagara environment and use appropriate adapter
 // Check for window.baja (BajaScript) - also check URL scheme and RequireJS
@@ -127,10 +144,14 @@ const checkNiagara = () => {
   return false
 }
 
+const deviceStore = useDeviceStore()
 const stats = ref(null)
 const dataLoaded = ref(false)
 const testResults = ref([])
 const showBuildingView = ref(false)
+const persistenceMessage = ref('')
+const savingLayout = ref(false)
+const loadingLayout = ref(false)
 let adapter = null
 
 onMounted(async () => {
@@ -204,13 +225,13 @@ onMounted(async () => {
     }
     
     // Set adapter in deviceStore so components can use it
-    const deviceStore = useDeviceStore()
     deviceStore.setAdapter(adapter)
     
     // Load building stats
     stats.value = await adapter.getBuildingStats()
     console.log('✓ Building stats loaded:', stats.value)
     dataLoaded.value = true
+    await restoreLayout()
     
     console.log('✓ App initialized successfully')
   } catch (error) {
@@ -220,6 +241,50 @@ onMounted(async () => {
     dataLoaded.value = false
     alert(`Failed to load data: ${error.message}\n\nCheck console for details.`)
   }
+})
+
+const buildDashboardState = () => ({
+  selectedDeviceId: deviceStore.selectedDevice?.id || null,
+  view: showBuildingView.value ? 'building' : 'home',
+  updatedAt: new Date().toISOString()
+})
+
+const saveCurrentLayout = async () => {
+  const state = buildDashboardState()
+  cacheDashboardState(state)
+  persistenceMessage.value = 'Saved locally'
+  savingLayout.value = true
+  const persisted = await saveStateToStation(state)
+  savingLayout.value = false
+  persistenceMessage.value = persisted ? 'Saved to station' : 'Saved locally (station unavailable)'
+}
+
+const restoreLayout = async () => {
+  loadingLayout.value = true
+  persistenceMessage.value = 'Restoring layout...'
+
+  let state = loadCachedDashboardState()
+  if (!state) {
+    state = await loadStateFromStation()
+  }
+
+  if (state?.selectedDeviceId) {
+    const device = deviceStore.getDeviceById(state.selectedDeviceId)
+    if (device) {
+      await deviceStore.selectDevice(device)
+    }
+  }
+
+  if (typeof state?.view === 'string') {
+    showBuildingView.value = state.view === 'building'
+  }
+
+  persistenceMessage.value = state ? 'Layout restored' : 'No saved layout found'
+  loadingLayout.value = false
+}
+
+watch(() => deviceStore.selectedDevice?.id, () => {
+  cacheDashboardState(buildDashboardState())
 })
 
 const testAdapter = async () => {
@@ -421,5 +486,37 @@ const testAdapter = async () => {
   .stats-grid {
     grid-template-columns: repeat(2, 1fr);
   }
+}
+
+.persistence-controls {
+  display: flex;
+  gap: var(--spacing-sm);
+  align-items: center;
+}
+
+.persistence-controls button {
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: transparent;
+  color: white;
+  border-radius: var(--radius-sm);
+  padding: 0.35rem 0.75rem;
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.persistence-controls button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.45);
+}
+
+.persistence-controls button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.persistence-message {
+  font-size: var(--font-size-xs);
+  color: rgba(255, 255, 255, 0.7);
 }
 </style>
