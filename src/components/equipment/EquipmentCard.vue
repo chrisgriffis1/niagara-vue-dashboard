@@ -343,16 +343,8 @@ const loadMiniChartData = async () => {
 }
 
 // Auto-load sparkline when component mounts
-onMounted(async () => {
-  // Delay to let card render and adapter initialize
-  setTimeout(async () => {
-    try {
-      await loadMiniChartData()
-    } catch (e) {
-      console.log(`Sparkline load skipped for ${props.equipment.name}:`, e.message)
-    }
-  }, 500) // Longer delay to ensure adapter is ready
-})
+// REMOVED: Auto-loading sparklines on mount caused 145+ sequential loads
+// Sparklines now load on-demand when card is expanded (see togglePoints)
 
 // Load mini-chart for specific point
 const loadMiniChartForPoint = async (point) => {
@@ -368,10 +360,10 @@ const loadMiniChartForPoint = async (point) => {
     // Ensure adapter is initialized (deviceStore handles this)
     await deviceStore.initializeAdapter()
     const now = new Date()
-    // Use 90 days lookback for COV histories which may have sparse data
-    const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
+    // Use 7 days lookback for sparklines - faster loading, COV data is sparse anyway
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
     // Pass full point object (with slotPath) for history lookup
-    miniChartData.value = await currentAdapter.getHistoricalData(point, { start: ninetyDaysAgo, end: now })
+    miniChartData.value = await currentAdapter.getHistoricalData(point, { start: sevenDaysAgo, end: now })
   } catch (error) {
     console.error('Failed to load mini-chart for point:', error)
     miniChartData.value = []
