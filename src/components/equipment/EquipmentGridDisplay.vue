@@ -18,8 +18,17 @@
 
     <!-- Equipment Grid -->
     <div v-else class="equipment-grid">
+      <!-- Point Device Stack Cards (grouped by type) -->
+      <PointDeviceStackCard
+        v-for="deviceType in pointDeviceTypeKeys"
+        :key="`stack-${deviceType}`"
+        :device-type="deviceType"
+        :devices="pointDeviceGroups[deviceType]"
+      />
+      
+      <!-- Regular Equipment Cards -->
       <EquipmentCard
-        v-for="equip in equipment"
+        v-for="equip in regularEquipment"
         :key="equip.id"
         :equipment="equip"
         @point-clicked="$emit('point-clicked', $event)"
@@ -37,9 +46,11 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import EquipmentCard from './EquipmentCard.vue'
+import PointDeviceStackCard from './PointDeviceStackCard.vue'
 
-defineProps({
+const props = defineProps({
   equipment: {
     type: Array,
     required: true
@@ -59,6 +70,39 @@ defineProps({
 })
 
 defineEmits(['point-clicked', 'equipment-clicked', 'clear-filters', 'load-more'])
+
+// Separate point-devices from regular equipment
+const regularEquipment = computed(() => {
+  const regular = props.equipment.filter(e => !e.isPointDevice)
+  console.log(`📊 Equipment split: ${regular.length} regular, ${props.equipment.length - regular.length} point-devices`)
+  return regular
+})
+
+// Group point-devices by type
+const pointDeviceGroups = computed(() => {
+  const pointDevices = props.equipment.filter(e => e.isPointDevice)
+  const groups = {}
+  
+  pointDevices.forEach(device => {
+    const type = device.type || 'Unknown'
+    if (!groups[type]) {
+      groups[type] = []
+    }
+    groups[type].push(device)
+  })
+  
+  // Debug: Log group counts
+  if (Object.keys(groups).length > 0) {
+    console.log('📦 Point-device groups:', Object.keys(groups).map(k => `${k}: ${groups[k].length}`).join(', '))
+  }
+  
+  return groups
+})
+
+// Get the keys of the point device groups for v-for iteration
+const pointDeviceTypeKeys = computed(() => {
+  return Object.keys(pointDeviceGroups.value).sort()
+})
 </script>
 
 <style scoped>
