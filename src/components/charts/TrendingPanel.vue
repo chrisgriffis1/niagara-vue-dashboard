@@ -232,12 +232,20 @@ const hasData = computed(() => {
 
 // Format data for Chart.js (single or multi-point)
 const chartPoint = computed(() => {
-  if (selectedPoints.value.length === 0) return null
+  console.log('🎨 TrendingPanel: Computing chartPoint...')
+  console.log('🎨 TrendingPanel: selectedPoints:', selectedPoints.value.length)
+  console.log('🎨 TrendingPanel: historicalData keys:', Object.keys(historicalData.value))
+  
+  if (selectedPoints.value.length === 0) {
+    console.log('🎨 TrendingPanel: No points selected')
+    return null
+  }
   
   if (selectedPoints.value.length === 1) {
     // Single point - use existing PointChart format
     const point = selectedPoints.value[0]
     const history = historicalData.value[point.id] || []
+    console.log(`🎨 TrendingPanel: Single point mode - ${point.name}, history length: ${history.length}`)
     return {
       ...point,
       data: history
@@ -245,6 +253,7 @@ const chartPoint = computed(() => {
   }
   
   // Multi-point - combine data
+  console.log(`🎨 TrendingPanel: Multi-point mode - ${selectedPoints.value.length} points`)
   return {
     id: 'multi',
     name: 'Multi-Point Trend',
@@ -379,22 +388,39 @@ const loadHistoricalData = async () => {
   loading.value = true
   historicalData.value = {}
   
+  console.log('🔍 TrendingPanel: Loading historical data for points:', selectedPoints.value.map(p => ({ id: p.id, name: p.name })))
+  console.log('🔍 TrendingPanel: Time range:', timeRange.value)
+  
   try {
     const currentAdapter = adapter.value
     if (!currentAdapter) {
-      console.error('Adapter not available')
+      console.error('❌ TrendingPanel: Adapter not available')
       return
     }
     await deviceStore.initializeAdapter()
+    
     for (const point of selectedPoints.value) {
+      console.log(`📊 TrendingPanel: Fetching history for point ID: ${point.id}, name: ${point.name}`)
+      
       const data = await currentAdapter.getHistoricalData(point.id, {
         startDate: timeRange.value.start,
         endDate: timeRange.value.end
       })
+      
+      console.log(`📊 TrendingPanel: Received ${data?.length || 0} data points for ${point.name}`)
+      if (data && data.length > 0) {
+        console.log('📊 TrendingPanel: Sample data point:', data[0])
+      }
+      
       historicalData.value[point.id] = data
     }
+    
+    console.log('✅ TrendingPanel: All historical data loaded:', {
+      pointCount: Object.keys(historicalData.value).length,
+      dataPoints: Object.values(historicalData.value).map(d => d?.length || 0)
+    })
   } catch (error) {
-    console.error('Error loading historical data:', error)
+    console.error('❌ TrendingPanel: Error loading historical data:', error)
   } finally {
     loading.value = false
   }
