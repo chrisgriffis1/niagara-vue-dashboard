@@ -137,20 +137,26 @@ const getLocationCount = (location) => {
 }
 
 const getAlarmCount = (filterType) => {
-  const equipmentWithAlarms = equipmentList.value.filter(e => {
-    const equipAlarms = alarmStore.alarmsByEquipment[e.id] || []
-    return equipAlarms.length > 0
-  })
+  // Get equipment IDs that have alarms
+  const equipmentIdsWithAlarms = new Set(
+    alarmStore.alarms
+      .filter(alarm => alarm.active)
+      .map(alarm => alarm.equipmentId)
+  )
   
   if (filterType === 'with-alarms') {
-    return equipmentWithAlarms.length
+    // Count unique equipment with alarms
+    return equipmentIdsWithAlarms.size
   }
   
-  // Count by priority
-  return equipmentWithAlarms.filter(e => {
-    const equipAlarms = alarmStore.alarmsByEquipment[e.id] || []
-    return equipAlarms.some(alarm => alarm.priority === filterType)
-  }).length
+  // Count equipment by alarm priority
+  const equipmentIdsWithPriority = new Set(
+    alarmStore.alarms
+      .filter(alarm => alarm.active && alarm.priority === filterType)
+      .map(alarm => alarm.equipmentId)
+  )
+  
+  return equipmentIdsWithPriority.size
 }
 
 // Simple filtered equipment (basic filtering only)
