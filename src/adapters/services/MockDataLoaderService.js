@@ -218,29 +218,9 @@ class MockDataLoaderService {
    * Extract location from equipment path or name
    */
   extractLocation(equip) {
-    // Try to extract location from various fields
-    const locationCandidates = [
-      equip.location,
-      equip.path,
-      equip.name
-    ].filter(Boolean);
-
-    for (const candidate of locationCandidates) {
-      // Look for floor patterns
-      const floorMatch = candidate.match(/(floor|fl|level|lvl)\s*(\d+)/i);
-      if (floorMatch) {
-        return `Floor ${floorMatch[2]}`;
-      }
-
-      // Look for building/area patterns
-      const areaMatch = candidate.match(/(building|bldg|area|zone|wing)\s*([A-Z]|\d+)/i);
-      if (areaMatch) {
-        return `${areaMatch[1]} ${areaMatch[2]}`;
-      }
-    }
-
-    // Don't assign a default location - leave undefined
-    return undefined;
+    // Return the explicit location field if it exists
+    // Don't try to extract from names - this creates false positives
+    return equip.location || equip.zone || undefined;
   }
 }
 
