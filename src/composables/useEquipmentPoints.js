@@ -12,12 +12,15 @@ export function useEquipmentPoints(equipment) {
 
   // State
   const loading = ref(false)
-  const points = ref([])
+  const allPoints = ref([]) // Store all points
+  const points = ref([]) // Displayed points (limited)
   const allPointsCount = ref(0)
   const showAllPoints = ref(false)
   const pointsExpanded = ref(false)
   const pointsLoaded = ref(false)
   const pointLiveValues = ref(new Map())
+  
+  const INITIAL_POINT_LIMIT = 10 // Show first 10 points initially
 
   // Live subscription cleanup
   let equipmentUnsubscribe = null
@@ -42,10 +45,39 @@ export function useEquipmentPoints(equipment) {
 
   // Get trendable points (numeric types)
   const trendablePoints = computed(() => {
-    return points.value.filter(p =>
+    return allPoints.value.filter(p =>
       ['Temperature', 'Pressure', 'Flow', 'Speed', 'Power', 'Current', 'Voltage', 'Setpoint'].includes(p.type)
     ).slice(0, 6) // Max 6 tabs for clean UI
   })
+  
+  // Sort points by priority: alarms first, then history, then alphabetical
+  const sortPointsByPriority = (pointsList) => {
+    return [...pointsList].sort((a, b) => {
+      // Priority 1: Points with alarms
+      const aHasAlarm = a.hasAlarm || false
+      const bHasAlarm = b.hasAlarm || false
+      if (aHasAlarm && !bHasAlarm) return -1
+      if (!aHasAlarm && bHasAlarm) return 1
+      
+      // Priority 2: Points with history
+      const aHasHistory = a.hasHistory || false
+      const bHasHistory = b.hasHistory || false
+      if (aHasHistory && !bHasHistory) return -1
+      if (!aHasHistory && bHasHistory) return 1
+      
+      // Priority 3: Alphabetical by name
+      return (a.name || '').localeCompare(b.name || '')
+    })
+  }
+  
+  // Get displayed points (limited or all based on showAllPoints)
+  const getDisplayedPoints = () => {
+    const sorted = sortPointsByPriority(allPoints.value)
+    if (showAllPoints.value || sorted.length <= INITIAL_POINT_LIMIT) {
+      return sorted
+    }
+    return sorted.slice(0, INITIAL_POINT_LIMIT)
+  }
 
   // Methods
   const loadPoints = async () => {
@@ -67,10 +99,12 @@ export function useEquipmentPoints(equipment) {
       })
 
       if (equipmentPoints && Array.isArray(equipmentPoints)) {
-        points.value = equipmentPoints
+        allPoints.value = equipmentPoints
         allPointsCount.value = equipmentPoints.length
+        points.value = getDisplayedPoints()
         pointsLoaded.value = true
         console.log(`✅ Loaded ${equipmentPoints.length} points for ${equipment.value.name}`)
+        console.log(`   Showing ${points.value.length} of ${allPointsCount.value} points`)
       }
     } catch (error) {
       console.error('❌ Failed to load points:', error)
@@ -114,7 +148,8 @@ export function useEquipmentPoints(equipment) {
 
   const toggleShowAllPoints = async () => {
     showAllPoints.value = !showAllPoints.value
-    await loadPoints() // Reload with new filter
+    points.value = getDisplayedPoints()
+    console.log(`📊 ${showAllPoints.value ? 'Showing all' : 'Showing limited'} points: ${points.value.length} of ${allPointsCount.value}`)
   }
 
   const getPointDisplayValue = (point) => {
