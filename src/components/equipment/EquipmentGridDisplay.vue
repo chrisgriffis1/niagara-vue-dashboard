@@ -178,6 +178,8 @@ onMounted(() => {
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: var(--spacing-lg);
   margin-bottom: var(--spacing-xl);
+  grid-auto-rows: min-content; /* Rows only as tall as needed */
+  align-items: start; /* All items align to top of their cells */
 }
 
 .load-more-section {
