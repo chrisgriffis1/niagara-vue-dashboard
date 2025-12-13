@@ -46,7 +46,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import EquipmentCard from './EquipmentCard.vue'
 import PointDeviceStackCard from './PointDeviceStackCard.vue'
 
@@ -101,7 +101,17 @@ const pointDeviceGroups = computed(() => {
 
 // Get the keys of the point device groups for v-for iteration
 const pointDeviceTypeKeys = computed(() => {
-  return Object.keys(pointDeviceGroups.value).sort()
+  const keys = Object.keys(pointDeviceGroups.value).sort()
+  console.log(`🔑 Stack card keys (${keys.length}):`, keys)
+  return keys
+})
+
+// Debug on mount
+onMounted(() => {
+  console.log('🎨 EquipmentGridDisplay mounted')
+  console.log('  Equipment count:', props.equipment.length)
+  console.log('  Point device types:', pointDeviceTypeKeys.value)
+  console.log('  Regular equipment:', regularEquipment.value.length)
 })
 </script>
 

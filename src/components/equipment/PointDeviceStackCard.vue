@@ -36,7 +36,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 
 const props = defineProps({
   deviceType: {
@@ -47,6 +47,10 @@ const props = defineProps({
     type: Array,
     required: true
   }
+})
+
+onMounted(() => {
+  console.log(`🃏 Stack card mounted: ${props.deviceType} (${props.devices.length} devices)`)
 })
 
 const isExpanded = ref(false)

@@ -211,6 +211,18 @@ defineProps({
   hasActiveFilters: {
     type: Boolean,
     required: true
+  },
+  getTypeCount: {
+    type: Function,
+    required: true
+  },
+  getLocationCount: {
+    type: Function,
+    required: true
+  },
+  getAlarmCount: {
+    type: Function,
+    required: true
   }
 })
 
@@ -222,22 +234,6 @@ defineEmits([
   'update:selectedCommunicationStatus',
   'clear-filters'
 ])
-
-// Methods passed as props
-const getTypeCount = (type) => {
-  // This will be passed from parent
-  return 0
-}
-
-const getLocationCount = (location) => {
-  // This will be passed from parent
-  return 0
-}
-
-const getAlarmCount = (filterType) => {
-  // This will be passed from parent
-  return 0
-}
 </script>
 
 <style scoped>

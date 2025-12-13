@@ -27,6 +27,9 @@
       :equipment-locations="equipmentLocations"
       :total-count="filteredEquipment.length"
       :has-active-filters="hasActiveFilters"
+      :get-type-count="getTypeCount"
+      :get-location-count="getLocationCount"
+      :get-alarm-count="getAlarmCount"
       @update:selected-type="selectedType = $event"
       @update:selected-location="selectedLocation = $event"
       @update:selected-alarm-filter="selectedAlarmFilter = $event"
@@ -117,6 +120,32 @@ const selectedCommunicationStatus = ref(null)
 
 // Computed to check if any filters are active
 const hasActiveFilters = computed(() => !!(selectedType.value || selectedLocation.value || selectedAlarmFilter.value))
+
+// Count functions for filter chips
+const getTypeCount = (type) => {
+  return equipmentList.value.filter(e => e?.type === type).length
+}
+
+const getLocationCount = (location) => {
+  return equipmentList.value.filter(e => (e?.location || e?.zone) === location).length
+}
+
+const getAlarmCount = (filterType) => {
+  const equipmentWithAlarms = equipmentList.value.filter(e => {
+    const equipAlarms = alarmStore.alarmsByEquipment[e.id] || []
+    return equipAlarms.length > 0
+  })
+  
+  if (filterType === 'with-alarms') {
+    return equipmentWithAlarms.length
+  }
+  
+  // Count by priority
+  return equipmentWithAlarms.filter(e => {
+    const equipAlarms = alarmStore.alarmsByEquipment[e.id] || []
+    return equipAlarms.some(alarm => alarm.priority === filterType)
+  }).length
+}
 
 // Simple filtered equipment (basic filtering only)
 const filteredEquipment = computed(() => {
