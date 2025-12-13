@@ -404,22 +404,32 @@ onMounted(async () => {
       }
     }
     
-    // Re-check after loading
-    if (isNiagara && typeof window !== 'undefined' && 
-        (typeof window.baja === 'undefined' || !window.baja)) {
-      // Wait a bit more for baja to become available
-      console.log('⏳ Waiting for baja to become available...')
-      for (let i = 0; i < 20; i++) {
+    // Re-check after loading and wait longer if needed
+    if (isNiagara && typeof window !== 'undefined') {
+      // Wait for baja.Ord to become available (query is added dynamically later)
+      console.log('⏳ Waiting for baja.Ord to become available...')
+      let bajaReady = false
+      for (let i = 0; i < 30; i++) { // Wait up to 3 seconds
         await new Promise(resolve => setTimeout(resolve, 100))
-        if (typeof window.baja !== 'undefined' && window.baja && window.baja.Ord) {
-          console.log(`✓ baja detected after ${(i + 1) * 100}ms`)
+        if (typeof window.baja !== 'undefined' && 
+            window.baja && 
+            typeof window.baja.Ord === 'function') {
+          console.log(`✓ baja.Ord detected after ${(i + 1) * 100}ms`)
+          bajaReady = true
           break
         }
+      }
+      
+      if (!bajaReady) {
+        console.error('❌ Timeout waiting for baja.Ord to become available')
+        console.log('   window.baja exists?', typeof window.baja !== 'undefined')
+        console.log('   window.baja.Ord exists?', typeof window.baja?.Ord)
       }
     }
     
     console.log(`📍 Environment: ${isNiagara ? 'Niagara Station detected' : 'Development (Mock Data)'}`)
     console.log(`🔍 window.baja check:`, typeof window !== 'undefined' ? (typeof window.baja !== 'undefined' ? 'exists' : 'undefined') : 'window undefined')
+    console.log(`🔍 window.baja.Ord check:`, typeof window !== 'undefined' ? (typeof window.baja?.Ord) : 'window undefined')
     console.log(`🔍 RequireJS check:`, typeof window !== 'undefined' ? (typeof window.require !== 'undefined' || typeof window.requirejs !== 'undefined' ? 'exists' : 'undefined') : 'window undefined')
     
     // Initialize adapter based on environment

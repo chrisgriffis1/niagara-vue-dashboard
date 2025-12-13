@@ -106,7 +106,9 @@ class NiagaraBQLAdapter {
    */
   _isNiagaraEnvironment() {
     const baja = this._getBaja();
-    return baja && typeof baja.query === 'function';
+    // Check for baja.Ord which is always present
+    // Note: baja.query is added dynamically and may not be available immediately
+    return baja && typeof baja.Ord === 'function';
   }
 
   /**
