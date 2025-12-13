@@ -101,8 +101,8 @@ class MockDataAdapter {
       // Process points using point service
       this.pointService.processPoints(this.equipment, parsedData.points);
 
-      // Set up alarms using alarm service
-      this.alarms = this.alarmService.generateAlarms(this.equipment, this.pointService.points);
+      // Set up alarms using alarm service - pass the parsed alarms from JSON
+      this.alarms = this.alarmService.generateAlarms(this.equipment, this.pointService.points, parsedData.alarms);
 
       // Set up history service
       this.historyService.setupHistoryIdCache(parsedData.historyIdCache);

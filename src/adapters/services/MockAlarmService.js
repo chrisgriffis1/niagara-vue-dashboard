@@ -1,6 +1,6 @@
 /**
  * Mock Alarm Service
- * Handles alarm simulation and management
+ * Handles alarm data from exported JSON
  */
 
 class MockAlarmService {
@@ -10,97 +10,68 @@ class MockAlarmService {
   }
 
   /**
-   * Generate mock alarms from equipment and points
+   * Load alarms from parsed data or generate fallback alarms
+   * @param {Array} equipment - Equipment list (for fallback generation)
+   * @param {Array} points - Points list (unused, kept for API compatibility)
+   * @param {Array} alarmsData - Pre-loaded alarm data from JSON
    */
-  generateAlarms(equipment, points) {
-    console.log('🚨 Generating mock alarms...');
+  generateAlarms(equipment, points, alarmsData = null) {
+    console.log('🚨 Loading alarms...');
 
-    this.alarms = [];
-
-    // Generate some realistic alarms based on equipment and points
-    equipment.forEach((equip, index) => {
-      // About 10% of equipment should have alarms
-      if (Math.random() < 0.1) {
-        const alarmTypes = ['critical', 'high', 'medium', 'low'];
-        const alarmType = alarmTypes[Math.floor(Math.random() * alarmTypes.length)];
-
-        const alarm = {
-          id: `alarm-${equip.id}-${Date.now()}-${index}`,
-          equipmentId: equip.id,
-          equipmentName: equip.name,
-          priority: alarmType,
-          message: this.generateAlarmMessage(equip, alarmType),
-          timestamp: new Date(Date.now() - Math.random() * 24 * 60 * 60 * 1000), // Random time in last 24 hours
-          acknowledged: Math.random() < 0.3, // 30% acknowledged
-          active: true, // All generated alarms are active
-          source: `${equip.name} - ${this.getAlarmSource(equip)}`
-        };
-
-        this.alarms.push(alarm);
-      }
-    });
+    // If we have real alarm data from the JSON, use it
+    if (alarmsData && Array.isArray(alarmsData) && alarmsData.length > 0) {
+      this.alarms = alarmsData.map(alarm => ({
+        ...alarm,
+        // Ensure required fields exist
+        active: alarm.active !== false,
+        acknowledged: alarm.acknowledged || alarm.ackState === 'Acked',
+        timestamp: alarm.timestamp ? new Date(alarm.timestamp) : new Date()
+      }));
+      console.log(`✓ Loaded ${this.alarms.length} alarms from data`);
+    } else {
+      // Fallback: generate mock alarms if no data provided
+      this.alarms = this._generateFallbackAlarms(equipment);
+      console.log(`✓ Generated ${this.alarms.length} fallback mock alarms`);
+    }
 
     // Sort by priority and timestamp (most recent first)
     this.alarms.sort((a, b) => {
       const priorityOrder = { critical: 4, high: 3, medium: 2, low: 1 };
       const priorityDiff = priorityOrder[b.priority] - priorityOrder[a.priority];
       if (priorityDiff !== 0) return priorityDiff;
-      return b.timestamp - a.timestamp;
+      return new Date(b.timestamp) - new Date(a.timestamp);
     });
 
-    console.log(`✓ Generated ${this.alarms.length} mock alarms`);
     return this.alarms;
   }
 
   /**
-   * Generate realistic alarm message
+   * Generate fallback alarms when no data is available
    */
-  generateAlarmMessage(equip, priority) {
-    const messages = {
-      critical: [
-        'Critical temperature exceeded',
-        'Equipment offline',
-        'Power failure detected',
-        'Sensor malfunction'
-      ],
-      high: [
-        'High temperature warning',
-        'Communication lost',
-        'Pressure out of range',
-        'Flow rate abnormal'
-      ],
-      medium: [
-        'Temperature elevated',
-        'Minor communication issue',
-        'Slight pressure deviation',
-        'Maintenance required'
-      ],
-      low: [
-        'Temperature slightly high',
-        'Periodic check needed',
-        'Minor adjustment recommended',
-        'Information only'
-      ]
-    };
+  _generateFallbackAlarms(equipment) {
+    const alarms = [];
+    
+    equipment.forEach((equip, index) => {
+      // About 10% of equipment should have alarms
+      if (Math.random() < 0.1) {
+        const alarmTypes = ['critical', 'high', 'medium', 'low'];
+        const alarmType = alarmTypes[Math.floor(Math.random() * alarmTypes.length)];
 
-    const messageList = messages[priority] || messages.medium;
-    return messageList[Math.floor(Math.random() * messageList.length)];
-  }
+        alarms.push({
+          id: `alarm-${equip.id}-${Date.now()}-${index}`,
+          equipmentId: equip.id,
+          equipmentName: equip.name,
+          priority: alarmType,
+          message: `${equip.name} - System alert`,
+          timestamp: new Date(Date.now() - Math.random() * 24 * 60 * 60 * 1000),
+          acknowledged: Math.random() < 0.3,
+          active: true,
+          source: equip.name
+        });
+      }
+    });
 
-  /**
-   * Get alarm source based on equipment type
-   */
-  getAlarmSource(equip) {
-    const sources = {
-      'VAV': ['Temperature Sensor', 'Damper Actuator', 'Flow Sensor'],
-      'AHU': ['Supply Fan', 'Return Fan', 'Coil Valve', 'Temperature Sensor'],
-      'Chiller': ['Compressor', 'Pump', 'Temperature Sensor', 'Pressure Sensor'],
-      'Pump': ['Motor', 'Pressure Sensor', 'Flow Sensor'],
-      'Boiler': ['Burner', 'Temperature Sensor', 'Pressure Sensor']
-    };
-
-    const equipSources = sources[equip.type] || ['Sensor', 'Actuator', 'Controller'];
-    return equipSources[Math.floor(Math.random() * equipSources.length)];
+    return alarms;
   }
 
   /**
