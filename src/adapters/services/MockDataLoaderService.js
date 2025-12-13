@@ -239,7 +239,8 @@ class MockDataLoaderService {
       }
     }
 
-    return 'Main Building';
+    // Don't assign a default location - leave undefined
+    return undefined;
   }
 }
 
