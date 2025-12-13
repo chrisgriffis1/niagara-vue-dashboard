@@ -88,14 +88,33 @@ class MockHistoryService {
     if (typeof pointIdOrObj === 'object' && pointIdOrObj !== null) {
       point = pointIdOrObj;
     } else if (typeof pointIdOrObj === 'string') {
-      // Look up point by ID from adapter's pointsMap
-      if (this.adapter && this.adapter.pointsMap) {
-        point = this.adapter.pointsMap.get(pointIdOrObj);
+      // Look up point by ID from adapter's pointService
+      if (this.adapter && this.adapter.pointService) {
+        point = this.adapter.pointService.points.find(p => p.id === pointIdOrObj);
       }
       if (!point) {
-        console.log(`⚠️ Point with ID ${pointIdOrObj} not found for historical data request`);
-        console.log('Available point IDs:', Array.from(this.adapter.pointsMap?.keys() || []));
-        return [];
+        console.warn(`⚠️ Point with ID ${pointIdOrObj} not found for historical data`);
+        console.log('📍 Trying to find point in equipment...');
+        
+        // Try to find it as equipment (for point-devices)
+        if (this.adapter && this.adapter.equipment) {
+          const equipment = this.adapter.equipment.find(e => e.id === pointIdOrObj);
+          if (equipment && equipment.isPointDevice) {
+            console.log(`✓ Found as point-device equipment: ${equipment.name}`);
+            point = {
+              id: equipment.id,
+              name: equipment.name,
+              value: equipment.currentValue,
+              type: equipment.type,
+              unit: equipment.unit
+            };
+          }
+        }
+        
+        if (!point) {
+          console.warn(`❌ Could not find point or equipment with ID: ${pointIdOrObj}`);
+          return [];
+        }
       }
     } else {
       console.log(`⚠️ Invalid parameter for getHistoricalData: ${typeof pointIdOrObj}`);
