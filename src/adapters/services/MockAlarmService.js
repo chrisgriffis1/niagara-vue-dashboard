@@ -25,13 +25,14 @@ class MockAlarmService {
         const alarmType = alarmTypes[Math.floor(Math.random() * alarmTypes.length)];
 
         const alarm = {
-          id: `alarm-${equip.id}-${Date.now()}`,
+          id: `alarm-${equip.id}-${Date.now()}-${index}`,
           equipmentId: equip.id,
           equipmentName: equip.name,
           priority: alarmType,
           message: this.generateAlarmMessage(equip, alarmType),
           timestamp: new Date(Date.now() - Math.random() * 24 * 60 * 60 * 1000), // Random time in last 24 hours
           acknowledged: Math.random() < 0.3, // 30% acknowledged
+          active: true, // All generated alarms are active
           source: `${equip.name} - ${this.getAlarmSource(equip)}`
         };
 
@@ -141,6 +142,10 @@ class MockAlarmService {
    */
   subscribeToAlarms(callback) {
     this.subscribers.push(callback);
+
+    // Immediately call callback with current alarms
+    callback(this.alarms);
+    console.log(`📡 Alarm subscriber added, sent ${this.alarms.length} initial alarms`);
 
     // Return unsubscribe function
     return () => {
