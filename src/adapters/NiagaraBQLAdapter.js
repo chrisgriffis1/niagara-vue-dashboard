@@ -177,6 +177,9 @@ class NiagaraBQLAdapter {
     // Start live subscriptions
     await this.subscriptionService._startLiveSubscriptions();
 
+    // Preload important historical data for instant charts
+    await this.historyService.preloadImportantHistories();
+
     console.log('✅ Full discovery complete');
   }
 

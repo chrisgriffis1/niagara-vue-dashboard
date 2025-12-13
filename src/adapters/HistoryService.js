@@ -153,6 +153,148 @@ class HistoryService {
   }
 
   /**
+   * Preload historical data for important points to make charts instant
+   */
+  async preloadImportantHistories() {
+    if (!this.adapter.initialized) return;
+
+    try {
+      console.log('🔄 Preloading important historical data for instant charts...');
+
+      // Get points that should have instant history access
+      const pointsToPreload = this._getPointsForPreloading();
+
+      console.log(`📊 Preloading history for ${pointsToPreload.length} points...`);
+
+      // Preload history in batches to avoid overwhelming the server
+      const batchSize = 5;
+      for (let i = 0; i < pointsToPreload.length; i += batchSize) {
+        const batch = pointsToPreload.slice(i, i + batchSize);
+
+        // Load batch in parallel
+        const promises = batch.map(async (point) => {
+          try {
+            // Check if already cached
+            const historyId = await this._findHistoryId(point);
+            if (!historyId) return;
+
+            const cachedData = this._loadHistoryDataFromCache(historyId);
+            if (cachedData) {
+              console.log(`✅ History already cached for ${point.name}`);
+              return;
+            }
+
+            // Load and cache history data
+            const historyData = await this._queryHistory(historyId, new Date(Date.now() - 24 * 60 * 60 * 1000), new Date(), 48);
+            if (historyData && historyData.length > 0) {
+              this._saveHistoryDataToCache(historyId, historyData);
+              console.log(`✅ Preloaded history for ${point.name}: ${historyData.length} points`);
+            }
+          } catch (error) {
+            console.warn(`⚠️ Failed to preload history for ${point.name}:`, error);
+          }
+        });
+
+        await Promise.all(promises);
+
+        // Small delay between batches to be gentle on the server
+        if (i + batchSize < pointsToPreload.length) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+
+      console.log('✅ History preloading complete');
+    } catch (error) {
+      console.warn('⚠️ History preloading failed:', error);
+    }
+  }
+
+  /**
+   * Determine which points should have their history preloaded for instant access
+   */
+  _getPointsForPreloading() {
+    const pointsToPreload = [];
+
+    // Priority 1: Points with active alarms (most important for instant access)
+    const alarmedPoints = this.adapter.points.filter(point => point.hasAlarm);
+    pointsToPreload.push(...alarmedPoints.slice(0, 10)); // Limit to 10
+
+    // Priority 2: High-priority points (Temperature, Status, Pressure)
+    const highPriorityPoints = this.adapter.points.filter(point =>
+      point.name.toLowerCase().includes('temp') ||
+      point.name.toLowerCase().includes('status') ||
+      point.name.toLowerCase().includes('pressure') ||
+      point.name.toLowerCase().includes('alarm')
+    );
+    pointsToPreload.push(...highPriorityPoints.slice(0, 15)); // Limit to 15
+
+    // Priority 3: Recently viewed points (from localStorage)
+    const recentlyViewed = this._getRecentlyViewedPoints();
+    pointsToPreload.push(...recentlyViewed.slice(0, 10)); // Limit to 10
+
+    // Priority 4: Points from first few equipment items (for initial browsing)
+    const equipmentPoints = [];
+    for (const equip of this.adapter.equipment.slice(0, 5)) { // First 5 equipment
+      const points = this.adapter.equipmentPointsMap.get(equip.id) || [];
+      equipmentPoints.push(...points.slice(0, 3)); // 3 points per equipment
+    }
+    pointsToPreload.push(...equipmentPoints.slice(0, 15)); // Limit to 15
+
+    // Remove duplicates
+    const uniquePoints = pointsToPreload.filter((point, index, self) =>
+      index === self.findIndex(p => p.id === point.id)
+    );
+
+    return uniquePoints.slice(0, 30); // Max 30 points to preload
+  }
+
+  /**
+   * Track a point as recently viewed for future preloading
+   */
+  _trackRecentlyViewedPoint(pointId) {
+    try {
+      const recentKey = 'niagara-recent-points';
+      let recentPoints = [];
+
+      const existing = localStorage.getItem(recentKey);
+      if (existing) {
+        recentPoints = JSON.parse(existing);
+      }
+
+      // Remove if already exists (to move to front)
+      const index = recentPoints.indexOf(pointId);
+      if (index > -1) {
+        recentPoints.splice(index, 1);
+      }
+
+      // Add to front of array
+      recentPoints.unshift(pointId);
+
+      // Keep only last 20
+      recentPoints = recentPoints.slice(0, 20);
+
+      localStorage.setItem(recentKey, JSON.stringify(recentPoints));
+    } catch (error) {
+      console.warn('⚠️ Failed to track recently viewed point:', error);
+    }
+  }
+
+  /**
+   * Get recently viewed points from localStorage
+   */
+  _getRecentlyViewedPoints() {
+    try {
+      const recent = localStorage.getItem('niagara-recent-points');
+      if (!recent) return [];
+
+      const pointIds = JSON.parse(recent);
+      return pointIds.map(id => this.adapter.pointsMap.get(id)).filter(Boolean);
+    } catch (error) {
+      return [];
+    }
+  }
+
+  /**
    * Find history ID for a point using BQL query on HistoryConfig
    */
   async _findHistoryId(point) {
@@ -271,6 +413,9 @@ class HistoryService {
       console.log(`⚠️ No point found for: ${pointId}`);
       return [];
     }
+
+    // Track this point as recently viewed for future preloading
+    this._trackRecentlyViewedPoint(pointId);
 
     // Find history ID
     const historyId = await this._findHistoryId(point);

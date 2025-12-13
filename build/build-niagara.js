@@ -26,7 +26,7 @@ try {
 
 // Step 2: Create Niagara module structure
 console.log('📁 Step 2: Creating Niagara module structure...');
-const distDir = path.join(__dirname, 'dist');
+const distDir = path.join(__dirname, '..', 'dist');
 const niagaraDir = path.join(__dirname, 'niagara-module');
 const fileDir = path.join(niagaraDir, 'file', 'web1');
 

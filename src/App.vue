@@ -239,14 +239,14 @@ const scrollToTop = () => {
 
   console.log('🚀 FAB: Container found:', mainContent?.className || mainContent?.tagName, 'scrollHeight:', mainContent?.scrollHeight, 'clientHeight:', mainContent?.clientHeight)
 
+  // Always try window scroll first, as it's more reliable
+  console.log('🚀 FAB: Scrolling window to top')
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+
+  // Also try the container if it's scrollable
   if (mainContent && mainContent.scrollHeight > mainContent.clientHeight) {
-    // Container is scrollable, scroll it to top
-    console.log('🚀 FAB: Scrolling container to top')
+    console.log('🚀 FAB: Also scrolling container to top')
     mainContent.scrollTo({ top: 0, behavior: 'smooth' })
-  } else {
-    // Fall back to window scroll
-    console.log('🚀 FAB: Scrolling window to top')
-    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   fabMenuOpen.value = false
