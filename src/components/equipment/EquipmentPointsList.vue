@@ -12,17 +12,15 @@
     </div>
 
     <div v-if="points.pointsExpanded.value" class="points-list">
-      <!-- Mini Trend for Primary Point -->
-      <div v-if="miniChart.miniChartData.value?.length > 0" class="mini-chart-section">
-        <div class="mini-chart-header">
-          <span class="mini-chart-label">{{ miniChart.selectedMiniPoint.value?.name }} - Last Hour</span>
+      <!-- Point Selector Tabs (controls outside sparkline) -->
+      <div v-if="points.trendablePoints.value?.length > 1" class="point-selector-section">
+        <div class="selector-header">
+          <span class="selector-label">Select Point for Sparkline:</span>
           <button @click.stop="$emit('trend-click')" class="trend-btn" title="Open full trending">
             📊 View Trend
           </button>
         </div>
-
-        <!-- Point Selector Tabs -->
-        <div v-if="points.pointsExpanded.value && points.trendablePoints.value?.length > 1" class="point-tabs">
+        <div class="point-tabs">
           <button
             v-for="point in points.trendablePoints.value"
             :key="point.id"
@@ -33,14 +31,6 @@
             {{ point.name }}
           </button>
         </div>
-
-        <MiniChart
-          :data="miniChart.miniChartData.value"
-          :color="miniChart.getMiniChartColor()"
-          :loading="miniChart.loadingMiniChart.value"
-          :point-name="miniChart.selectedMiniPoint.value?.name"
-          :unit="miniChart.selectedMiniPoint.value?.unit"
-        />
       </div>
 
       <div v-if="points.loading.value" class="points-loading">
@@ -87,8 +77,6 @@
 </template>
 
 <script setup>
-import MiniChart from '../charts/MiniChart.vue'
-
 defineProps({
   points: {
     type: Object,
@@ -148,6 +136,27 @@ defineEmits(['point-click', 'trend-click'])
   gap: var(--spacing-md);
 }
 
+.point-selector-section {
+  background: var(--color-background-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-sm);
+}
+
+.selector-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-sm);
+}
+
+.selector-label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
+
 .mini-chart-section {
   background: var(--color-background-secondary);
   border: 1px solid var(--color-border);
@@ -187,7 +196,6 @@ defineEmits(['point-click', 'trend-click'])
 .point-tabs {
   display: flex;
   gap: var(--spacing-xs);
-  margin-bottom: var(--spacing-sm);
   flex-wrap: wrap;
 }
 
