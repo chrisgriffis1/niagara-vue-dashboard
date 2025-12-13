@@ -214,22 +214,31 @@ class MockDataAdapter {
     const points = this.pointService.getPointsByEquipment(equipmentId);
 
     // Return formatted point data with all fields needed for sparklines
-    return points.map(point => ({
-      id: point.id,
-      name: point.name,
-      displayName: point.displayName || point.name,
-      type: point.type,
-      unit: point.unit,
-      value: point.value,
-      ord: point.ord,
-      slotPath: point.slotPath || point.ord,
-      equipmentId: point.equipmentId || equipmentId,
-      displayValue: this.pointService.formatPointValue(point),
-      trendable: true, // All points are "trendable" in mock mode
-      hasHistory: true, // Enable history for all points in mock mode
-      historyId: point.historyId || `mock_${point.id}`,
-      priority: point.priority || 'normal'
-    }));
+    return points.map(point => {
+      // Check if this point has an active alarm
+      const hasAlarm = this.alarms.some(alarm => 
+        alarm.active && 
+        (alarm.pointId === point.id || alarm.sourceId === point.id)
+      );
+      
+      return {
+        id: point.id,
+        name: point.name,
+        displayName: point.displayName || point.name,
+        type: point.type,
+        unit: point.unit,
+        value: point.value,
+        ord: point.ord,
+        slotPath: point.slotPath || point.ord,
+        equipmentId: point.equipmentId || equipmentId,
+        displayValue: this.pointService.formatPointValue(point),
+        trendable: true, // All points are "trendable" in mock mode
+        hasHistory: true, // Enable history for all points in mock mode
+        hasAlarm: hasAlarm, // Flag if point has an active alarm
+        historyId: point.historyId || `mock_${point.id}`,
+        priority: point.priority || 'normal'
+      };
+    });
   }
 
   /**
