@@ -267,8 +267,8 @@ const chartPoint = computed(() => {
 // Initialize with initial point if provided
 onMounted(async () => {
   console.log('🚀 TrendingPanel: onMounted called')
-  console.log('🚀 TrendingPanel: initialPoint:', props.initialPoint)
-  console.log('🚀 TrendingPanel: initialEquipment:', props.initialEquipment)
+  console.log('🚀 TrendingPanel: initialPoint prop:', props.initialPoint)
+  console.log('🚀 TrendingPanel: initialEquipment prop:', props.initialEquipment)
   
   // Initialize adapter
   await deviceStore.initializeAdapter()
@@ -276,9 +276,30 @@ onMounted(async () => {
   // Load equipment points
   await loadAllEquipmentPoints()
   
-  // Add initial point if provided
-  if (props.initialPoint && props.initialEquipment) {
+  // Extract point and equipment from props
+  // initialPoint might be an object with { point, equipment } structure
+  let point = null
+  let equipment = null
+  
+  if (props.initialPoint) {
+    if (props.initialPoint.point && props.initialPoint.equipment) {
+      // New structure: { point, equipment }
+      point = props.initialPoint.point
+      equipment = props.initialPoint.equipment
+      console.log('✅ TrendingPanel: Detected new structure { point, equipment }')
+    } else {
+      // Old structure: direct point object
+      point = props.initialPoint
+      equipment = props.initialEquipment
+      console.log('✅ TrendingPanel: Detected old structure (direct point)')
+    }
+  }
+  
+  // Add initial point if we have both point and equipment
+  if (point && equipment) {
     console.log('✅ TrendingPanel: Adding initial point to selection')
+    console.log('📍 Point:', point)
+    console.log('🏢 Equipment:', equipment)
     
     const colorIndex = selectedPoints.value.length % 10
     const colors = [
@@ -287,9 +308,9 @@ onMounted(async () => {
     ]
     
     const pointToAdd = {
-      ...props.initialPoint,
-      equipmentName: props.initialEquipment.name,
-      equipmentId: props.initialEquipment.id,
+      ...point,
+      equipmentName: equipment.name,
+      equipmentId: equipment.id,
       color: colors[colorIndex]
     }
     
@@ -303,7 +324,9 @@ onMounted(async () => {
     console.log('⏳ TrendingPanel: Calling loadHistoricalData...')
     await loadHistoricalData()
   } else {
-    console.log('⚠️ TrendingPanel: No initial point or equipment provided')
+    console.log('⚠️ TrendingPanel: Missing point or equipment')
+    console.log('   point:', point)
+    console.log('   equipment:', equipment)
   }
   
   // Setup keyboard shortcuts
