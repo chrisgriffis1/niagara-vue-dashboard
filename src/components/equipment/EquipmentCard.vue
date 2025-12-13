@@ -107,10 +107,21 @@ onMounted(async () => {
   // Debug: Log point-device detection
   if (props.equipment.isPointDevice) {
     console.log(`📌 Point-device mounted: ${props.equipment.name}, value: ${props.equipment.currentValue}`)
-  }
-  
-  // For regular equipment with points, load points to enable sparkline
-  if (!props.equipment.isPointDevice && props.equipment.pointCount > 0) {
+    
+    // For point-devices, load sparkline using the equipment as the point
+    // Create a pseudo-point object from the equipment data
+    const pseudoPoint = {
+      id: props.equipment.id,
+      name: props.equipment.name,
+      slotPath: props.equipment.slotPath,
+      ord: props.equipment.ord,
+      type: props.equipment.type,
+      unit: props.equipment.unit,
+      hasHistory: true
+    }
+    miniChart.loadMiniChartData(pseudoPoint)
+  } else if (props.equipment.pointCount > 0) {
+    // For regular equipment with points, load points to enable sparkline
     await points.loadPoints()
     
     // Initialize sparkline after points are loaded
