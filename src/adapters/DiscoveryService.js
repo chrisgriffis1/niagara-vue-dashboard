@@ -28,32 +28,40 @@ class DiscoveryService {
       // Query for control points (equipment)
       const bql = "station:|slot:/Drivers/BacnetNetwork|bql:select slotPath, displayName, name, navName, type from control:ControlPoint";
       const ord = baja.Ord.make(bql);
-      const result = await baja.query(ord);
+      const table = await ord.get(); // Use .get() instead of baja.query()
 
       const equipment = [];
-      result.getRows().each((record) => {
-        try {
-          const equip = {
-            id: record.get('slotPath')?.toString() || `equip_${equipment.length}`,
-            name: record.get('displayName')?.toString() || record.get('name')?.toString() || 'Unknown',
-            type: 'Unknown',
-            ord: record.get('slotPath')?.toString() || '',
-            slotPath: record.get('slotPath')?.toString() || '',
-            rawType: record.get('type')?.toString() || ''
-          };
+      
+      // Use cursor pattern from LivePoints.html
+      return new Promise((resolve) => {
+        table.cursor({
+          each: function(record) {
+            try {
+              const equip = {
+                id: record.get('slotPath')?.toString() || `equip_${equipment.length}`,
+                name: record.get('displayName')?.toString() || record.get('name')?.toString() || 'Unknown',
+                type: 'Unknown',
+                ord: record.get('slotPath')?.toString() || '',
+                slotPath: record.get('slotPath')?.toString() || '',
+                rawType: record.get('type')?.toString() || ''
+              };
 
-          // Infer equipment type and location
-          equip.type = this._inferEquipmentType(equip);
-          equip.location = this._extractLocation(equip);
+              // Infer equipment type and location (this needs to be in the same context)
+              const self = this;
+              equip.type = self._inferEquipmentType ? self._inferEquipmentType(equip) : 'Unknown';
+              equip.location = self._extractLocation ? self._extractLocation(equip) : '';
 
-          equipment.push(equip);
-        } catch (error) {
-          console.warn('⚠️ Error processing equipment record:', error);
-        }
+              equipment.push(equip);
+            } catch (error) {
+              console.warn('⚠️ Error processing equipment record:', error);
+            }
+          }.bind(this), // Bind 'this' to access adapter methods
+          after: function() {
+            console.log(`✅ Discovered ${equipment.length} equipment`);
+            resolve(equipment);
+          }
+        });
       });
-
-      console.log(`✅ Discovered ${equipment.length} equipment`);
-      return equipment;
     } catch (error) {
       console.error('❌ Failed to discover equipment:', error);
       return [];
@@ -69,32 +77,39 @@ class DiscoveryService {
     try {
       // Query for points that might be equipment-like
       const pointDeviceOrd = baja.Ord.make("station:|slot:/Drivers/BacnetNetwork|bql:select slotPath, displayName, name, out from control:ControlPoint where displayName like '*Exh*' or displayName like '*Freezer*' or displayName like '*Heater*' or displayName like '*Fan*'");
-      const result = await baja.query(pointDeviceOrd);
+      const table = await pointDeviceOrd.get(); // Use .get() instead of baja.query()
 
       const pointDevices = [];
-      result.getRows().each((record) => {
-        try {
-          const slotPath = record.get('slotPath')?.toString() || '';
-          const displayName = record.get('displayName')?.toString() || record.get('name')?.toString() || '';
+      const self = this;
+      
+      return new Promise((resolve) => {
+        table.cursor({
+          each: function(record) {
+            try {
+              const slotPath = record.get('slotPath')?.toString() || '';
+              const displayName = record.get('displayName')?.toString() || record.get('name')?.toString() || '';
 
-          if (slotPath && displayName) {
-            pointDevices.push({
-              id: slotPath,
-              name: displayName,
-              type: this._inferEquipmentType({ name: displayName }),
-              ord: slotPath,
-              slotPath: slotPath,
-              isPointDevice: true,
-              status: 'unknown'
-            });
+              if (slotPath && displayName) {
+                pointDevices.push({
+                  id: slotPath,
+                  name: displayName,
+                  type: self._inferEquipmentType({ name: displayName }),
+                  ord: slotPath,
+                  slotPath: slotPath,
+                  isPointDevice: true,
+                  status: 'unknown'
+                });
+              }
+            } catch (error) {
+              console.warn('⚠️ Error processing point-device record:', error);
+            }
+          },
+          after: function() {
+            console.log(`✅ Found ${pointDevices.length} point-devices`);
+            resolve(pointDevices);
           }
-        } catch (error) {
-          console.warn('⚠️ Error processing point-device record:', error);
-        }
+        });
       });
-
-      console.log(`✅ Found ${pointDevices.length} point-devices`);
-      return pointDevices;
     } catch (error) {
       console.error('❌ Failed to discover point-devices:', error);
       return [];
