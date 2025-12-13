@@ -128,6 +128,15 @@ const summaryText = computed(() => {
   return 'No data'
 })
 
+// Get unique locations in this group
+const locationsSummary = computed(() => {
+  const locations = [...new Set(props.devices.map(d => d.location || d.zone).filter(Boolean))]
+  if (locations.length === 0) return ''
+  if (locations.length === 1) return locations[0]
+  if (locations.length === 2) return locations.join(' & ')
+  return `${locations.length} locations`
+})
+
 // Status class for coloring
 const statusClass = computed(() => {
   if (isBooleanType.value) {
