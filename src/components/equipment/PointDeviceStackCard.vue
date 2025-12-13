@@ -351,46 +351,57 @@ const toggleExpand = () => {
 .point-selector-section {
   background: var(--color-bg-tertiary, #252540);
   border-bottom: 1px solid var(--color-border, #333);
-  padding: 12px 16px;
+  padding: 10px 16px;
 }
 
 .selector-header {
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .selector-label {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--color-text-secondary, #888);
   font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .point-tabs {
   display: flex;
-  gap: 8px;
+  gap: 4px;
   flex-wrap: wrap;
+  max-height: 120px;
+  overflow-y: auto;
 }
 
 .point-tab {
   background: var(--color-bg-secondary, #1a1a2e);
   border: 1px solid var(--color-border, #333);
   color: var(--color-text-secondary, #888);
-  padding: 6px 12px;
-  border-radius: 6px;
+  padding: 4px 8px;
+  border-radius: 4px;
   cursor: pointer;
-  font-size: 12px;
-  transition: all 0.2s ease;
+  font-size: 11px;
+  font-weight: 500;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 150px;
 }
 
 .point-tab:hover {
   background: var(--color-primary, #3b82f6);
   color: white;
   border-color: var(--color-primary, #3b82f6);
+  transform: translateY(-1px);
 }
 
 .point-tab.active {
   background: var(--color-primary, #3b82f6);
   color: white;
   border-color: var(--color-primary, #3b82f6);
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.4);
 }
 
 .device-row {
