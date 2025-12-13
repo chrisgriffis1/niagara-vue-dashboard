@@ -78,7 +78,7 @@
  * Refactored to use sub-components for maintainability
  */
 
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useDeviceStore } from '../../stores/deviceStore'
 import { useAlarmStore } from '../../stores/alarmStore'
 import GridHeader from './GridHeader.vue'
@@ -96,12 +96,18 @@ const showAdvancedFilters = ref(false)
 const searchQuery = ref('')
 const searchInputRef = ref(null)
 
+// Debug: Watch showFilter changes
+watch(showFilter, (newVal, oldVal) => {
+  console.log(`👀 showFilter changed: ${oldVal} → ${newVal}`)
+})
+
 // Get equipment list from store
 const equipmentList = computed(() => deviceStore.allDevices || [])
 
 // Get unique equipment types
 const equipmentTypes = computed(() => {
   const types = [...new Set(equipmentList.value.map(e => e?.type).filter(Boolean))]
+  console.log(`📋 Equipment types (${types.length}):`, types)
   return types.sort()
 })
 
@@ -176,7 +182,9 @@ const filteredEquipment = computed(() => {
 
 // Methods
 const toggleFilter = () => {
+  console.log('🔍 toggleFilter called, current showFilter:', showFilter.value)
   showFilter.value = !showFilter.value
+  console.log('🔍 showFilter after toggle:', showFilter.value)
 }
 
 const clearFilters = () => {

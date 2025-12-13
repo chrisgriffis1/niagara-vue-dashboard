@@ -171,7 +171,9 @@
 </template>
 
 <script setup>
-defineProps({
+import { watch } from 'vue'
+
+const props = defineProps({
   showFilter: {
     type: Boolean,
     required: true
@@ -224,6 +226,11 @@ defineProps({
     type: Function,
     required: true
   }
+})
+
+// Debug: Watch showFilter prop changes
+watch(() => props.showFilter, (newVal, oldVal) => {
+  console.log(`🎛️ FilterSection showFilter prop changed: ${oldVal} → ${newVal}`)
 })
 
 defineEmits([
