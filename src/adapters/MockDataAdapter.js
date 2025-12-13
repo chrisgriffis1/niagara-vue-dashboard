@@ -24,8 +24,8 @@ class MockDataAdapter {
     const base = typeof import.meta !== 'undefined' && import.meta.env?.BASE_URL || '';
     this.availableDatasets = [
       { id: 'demo', name: 'Demo Data', file: `${base}mock-data/demo-site-profile.json.json` },
-      { id: 'real', name: 'Real Niagara Data', file: `${base}mock-data/firstTryNeedsWork.json` },
-      { id: 'live', name: 'Live Station Export (Dec 12)', file: `${base}mock-data/live-station-export.json` }
+      { id: 'real', name: 'Real Niagara Data', file: `${base}mock-data/mock-data/firstTryNeedsWork.json` },
+      { id: 'live', name: 'Live Station Export (Dec 12)', file: `${base}mock-data/mock-data/live-station-export.json` }
     ];
     this.currentDataset = 'demo'; // Default to demo, can be switched
     this.alarms = []; // Alarms from exported data
