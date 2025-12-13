@@ -244,3 +244,4 @@ class MockPointService {
 }
 
 export default MockPointService;
+

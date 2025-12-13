@@ -86,6 +86,7 @@ import {
   Legend,
   Filler
 } from 'chart.js'
+import configService from '../../services/ConfigurationService'
 
 // Register Chart.js components
 Chart.register(
@@ -174,8 +175,30 @@ const initChart = async () => {
     // Multi-point: create dataset for each point
     datasets = props.point.points.map(point => {
       const history = props.point.data[point.id] || []
+      
+      // Build device and point objects for config service
+      const device = {
+        name: point.equipmentName || '',
+        displayName: point.equipmentName || '',
+        location: point.location || '',
+        zone: point.zone || '',
+        type: point.equipmentType || ''
+      }
+      
+      const pointObj = {
+        name: point.name,
+        displayName: point.displayName || point.name,
+        unit: point.unit,
+        tstatLocation: point.tstatLocation || point.location || ''
+      }
+      
+      // Use configuration service to format label
+      const config = configService.getCurrentConfig()
+      const template = device.location ? config.labelTemplates.chartWithLocation : config.labelTemplates.chart
+      const label = configService.formatLabel(template, device, pointObj)
+      
       return {
-        label: `${point.name} (${point.unit || ''})`,
+        label,
         data: history.map(d => d.value),
         borderColor: point.color,
         backgroundColor: point.color + '20',

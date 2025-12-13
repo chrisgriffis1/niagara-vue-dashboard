@@ -66,6 +66,7 @@
               :available-equipment="availableEquipment"
               :current-equipment="currentEquipment"
               :equipment-points="equipmentPoints"
+              :alarms="deviceStore.alarms"
               @points-changed="handlePointsChange"
             />
 
@@ -183,6 +184,7 @@ import SmartSuggestions from './SmartSuggestions.vue'
 import PointChart from './PointChart.vue'
 import TableView from './TableView.vue'
 import { useDeviceStore } from '../../stores/deviceStore'
+import historyCacheService from '../../services/HistoryCacheService'
 
 const props = defineProps({
   initialEquipment: {
@@ -220,7 +222,19 @@ const loading = ref(false)
 const showAdvancedSettings = ref(false) // Collapsed by default
 const isFullScreen = ref(false) // Focus mode for chart
 
-const currentEquipment = computed(() => props.initialEquipment)
+const currentEquipment = computed(() => {
+  // If we have initialEquipment, use it
+  if (props.initialEquipment) return props.initialEquipment
+  
+  // Otherwise, derive it from the first selected point
+  if (selectedPoints.value.length > 0) {
+    const firstPoint = selectedPoints.value[0]
+    // Find the equipment for this point
+    return props.availableEquipment.find(e => e.id === firstPoint.equipmentId) || null
+  }
+  
+  return null
+})
 
 const currentEquipmentPoints = computed(() => {
   return equipmentPoints.value[currentEquipment.value?.id] || []
@@ -438,19 +452,34 @@ const loadHistoricalData = async () => {
     await deviceStore.initializeAdapter()
     
     for (const point of selectedPoints.value) {
-      console.log(`📊 TrendingPanel: Fetching history for point ID: ${point.id}, name: ${point.name}`)
+      console.log(`📊 TrendingPanel: Loading history for point: ${point.name}`)
       
-      const data = await currentAdapter.getHistoricalData(point.id, {
-        startDate: timeRange.value.start,
-        endDate: timeRange.value.end
-      })
-      
-      console.log(`📊 TrendingPanel: Received ${data?.length || 0} data points for ${point.name}`)
-      if (data && data.length > 0) {
-        console.log('📊 TrendingPanel: Sample data point:', data[0])
+      try {
+        // Try to get from cache first (INSTANT!)
+        let data = await historyCacheService.getHistoryRange(
+          point.id,
+          timeRange.value.start,
+          timeRange.value.end
+        )
+        
+        if (data && data.length > 0) {
+          console.log(`⚡ TrendingPanel: Loaded ${data.length} points from CACHE for ${point.name}`)
+        } else {
+          // Cache miss - fetch from adapter (slower)
+          console.log(`🔄 TrendingPanel: Cache miss, fetching from adapter for ${point.name}`)
+          data = await currentAdapter.getHistoricalData(point.id, {
+            startDate: timeRange.value.start,
+            endDate: timeRange.value.end
+          })
+          console.log(`📊 TrendingPanel: Fetched ${data?.length || 0} points from adapter`)
+        }
+        
+        if (data && data.length > 0) {
+          historicalData.value[point.id] = data
+        }
+      } catch (error) {
+        console.error(`❌ Error loading history for ${point.name}:`, error)
       }
-      
-      historicalData.value[point.id] = data
     }
     
     console.log('✅ TrendingPanel: All historical data loaded:', {

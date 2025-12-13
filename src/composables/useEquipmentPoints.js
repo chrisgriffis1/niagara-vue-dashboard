@@ -5,6 +5,7 @@
 
 import { ref, computed } from 'vue'
 import { useDeviceStore } from '../stores/deviceStore'
+import configService from '../services/ConfigurationService'
 
 export function useEquipmentPoints(equipment) {
   const deviceStore = useDeviceStore()
@@ -43,9 +44,16 @@ export function useEquipmentPoints(equipment) {
 
   const showToggleButton = computed(() => canShowPoints.value)
 
+  // Get visible points (not hidden by configuration) for subscriptions
+  const visiblePoints = computed(() => {
+    return allPoints.value.filter(point => {
+      return !configService.isPointHidden(point, equipment.value?.type, equipment.value?.id)
+    })
+  })
+
   // Get trendable points (numeric types)
   const trendablePoints = computed(() => {
-    return allPoints.value.filter(p =>
+    return visiblePoints.value.filter(p =>
       ['Temperature', 'Pressure', 'Flow', 'Speed', 'Power', 'Current', 'Voltage', 'Setpoint'].includes(p.type)
     ).slice(0, 6) // Max 6 tabs for clean UI
   })
@@ -71,22 +79,42 @@ export function useEquipmentPoints(equipment) {
   }
   
   // Get displayed points (limited or all based on showAllPoints)
+  // Also filters out hidden points based on configuration
   const getDisplayedPoints = () => {
-    const sorted = sortPointsByPriority(allPoints.value)
+    // Check if there's a custom order configured
+    const customOrdered = configService.applyPointOrder(
+      allPoints.value,
+      equipment.value?.type,
+      equipment.value?.id
+    )
+    
+    // If custom order was applied (different from original), use it
+    // Otherwise fall back to priority sorting
+    const hasCustomOrder = customOrdered.length > 0 && 
+      customOrdered.some((p, i) => allPoints.value[i]?.id !== p.id)
+    
+    const sorted = hasCustomOrder ? customOrdered : sortPointsByPriority(allPoints.value)
+    
+    // Filter out hidden points based on configuration
+    const filtered = sorted.filter(point => {
+      return !configService.isPointHidden(point, equipment.value.type, equipment.value.id)
+    })
     
     console.log(`🔍 useEquipmentPoints: Total points: ${sorted.length}`)
-    console.log(`🔍 useEquipmentPoints: Points with alarms: ${sorted.filter(p => p.hasAlarm).length}`)
-    console.log(`🔍 useEquipmentPoints: Points with history: ${sorted.filter(p => p.hasHistory).length}`)
+    console.log(`🔍 useEquipmentPoints: Using ${hasCustomOrder ? 'custom' : 'priority'} order`)
+    console.log(`🔍 useEquipmentPoints: After hiding: ${filtered.length}`)
+    console.log(`🔍 useEquipmentPoints: Points with alarms: ${filtered.filter(p => p.hasAlarm).length}`)
+    console.log(`🔍 useEquipmentPoints: Points with history: ${filtered.filter(p => p.hasHistory).length}`)
     console.log(`🔍 useEquipmentPoints: showAllPoints: ${showAllPoints.value}`)
     console.log(`🔍 useEquipmentPoints: INITIAL_POINT_LIMIT: ${INITIAL_POINT_LIMIT}`)
     
-    if (showAllPoints.value || sorted.length <= INITIAL_POINT_LIMIT) {
-      console.log(`✅ useEquipmentPoints: Returning all ${sorted.length} points`)
-      return sorted
+    if (showAllPoints.value || filtered.length <= INITIAL_POINT_LIMIT) {
+      console.log(`✅ useEquipmentPoints: Returning all ${filtered.length} points`)
+      return filtered
     }
     
-    const limited = sorted.slice(0, INITIAL_POINT_LIMIT)
-    console.log(`✅ useEquipmentPoints: Returning limited ${limited.length} of ${sorted.length} points`)
+    const limited = filtered.slice(0, INITIAL_POINT_LIMIT)
+    console.log(`✅ useEquipmentPoints: Returning limited ${limited.length} of ${filtered.length} points`)
     console.log(`   First 3 points:`, limited.slice(0, 3).map(p => ({ name: p.name, hasAlarm: p.hasAlarm, hasHistory: p.hasHistory })))
     
     return limited
@@ -136,10 +164,21 @@ export function useEquipmentPoints(equipment) {
         await loadPoints()
       }
 
-      // Subscribe to live updates for this equipment's points
+      // Subscribe to live updates ONLY for visible (non-hidden) points
       const currentAdapter = adapter.value
       if (currentAdapter && currentAdapter.subscribeToEquipment && points.value.length > 0) {
+        const visibleCount = visiblePoints.value.length
+        const hiddenCount = allPoints.value.length - visibleCount
+        console.log(`📡 Subscribing to ${visibleCount} visible points (${hiddenCount} hidden)`)
+        
         equipmentUnsubscribe = currentAdapter.subscribeToEquipment(equipment.value.id, (update) => {
+          // Only process updates for visible (non-hidden) points
+          const point = visiblePoints.value.find(p => p.id === update.pointId)
+          if (!point) {
+            // Point is hidden, ignore update to save resources
+            return
+          }
+          
           // Update point's live value
           pointLiveValues.value.set(update.pointId, {
             value: update.value,
@@ -208,6 +247,7 @@ export function useEquipmentPoints(equipment) {
     // State
     loading,
     points,
+    allPoints,  // Expose all points for editing
     allPointsCount,
     showAllPoints,
     pointsExpanded,
@@ -218,6 +258,7 @@ export function useEquipmentPoints(equipment) {
     pointCountLabel,
     canShowPoints,
     showToggleButton,
+    visiblePoints,  // Expose visible points
     trendablePoints,
 
     // Methods

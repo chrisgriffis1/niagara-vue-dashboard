@@ -13,7 +13,21 @@ npm run dev
 
 # Build for production
 npm run build
+
+# Build standalone HTML file (for sharing/demos)
+npm run build:standalone
+# Output: builds/niagara-navigator-standalone.html
 ```
+
+## 📦 Build Outputs
+
+All build artifacts are organized in separate directories:
+
+- **`builds/`** - Standalone HTML file (single-file portable version)
+- **`dist/`** - Standard web build (requires web server)
+- **`niagara-module/`** - Niagara station deployment package
+
+See `DEPLOYMENT.md` for deployment options (Docker, PWA, Electron).
 
 ## 📁 Project Structure
 

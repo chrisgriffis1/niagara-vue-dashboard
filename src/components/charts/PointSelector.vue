@@ -2,7 +2,20 @@
   <div class="point-selector">
     <div class="selector-header">
       <h4>📊 Select Points</h4>
-      <span class="selected-count">{{ selectedPoints.length }} selected</span>
+      <div class="point-count-indicator">
+        <span 
+          class="selected-count"
+          :class="{
+            'count-warning': selectedPoints.length > 10,
+            'count-danger': selectedPoints.length > 30
+          }"
+        >
+          {{ selectedPoints.length }} / 50
+        </span>
+        <span class="count-label">
+          {{ selectedPoints.length <= 10 ? '✓ Optimal' : selectedPoints.length <= 30 ? '⚠️ Heavy' : '🔥 Very Heavy' }}
+        </span>
+      </div>
     </div>
 
     <!-- Selected Points List -->
@@ -21,11 +34,24 @@
     <!-- Quick Actions -->
     <div class="quick-actions">
       <button 
+        @click="showSmartModal = true"
+        class="action-btn smart-action"
+      >
+        🎯 Smart Selection
+      </button>
+      <button 
         v-if="currentEquipment"
         @click="addAllPointsFromEquipment"
         class="action-btn"
       >
         + All Points from {{ currentEquipment.name }}
+      </button>
+      <button 
+        v-if="currentEquipment"
+        @click="showMoreFromDevice = !showMoreFromDevice"
+        class="action-btn"
+      >
+        {{ showMoreFromDevice ? '▼' : '▶' }} More from {{ currentEquipment.name }}
       </button>
       <button 
         @click="showPointPicker = !showPointPicker"
@@ -40,6 +66,23 @@
       >
         ✕ Clear All
       </button>
+    </div>
+
+    <!-- More from Device (Expanded Point List) -->
+    <div v-if="showMoreFromDevice && currentEquipment" class="more-from-device card">
+      <div class="section-title">Select More Points from {{ currentEquipment.name }}</div>
+      <div class="device-points-list">
+        <div 
+          v-for="point in getEquipmentPoints(currentEquipment.id)" 
+          :key="point.id"
+          class="point-option"
+          @click="togglePoint(point, currentEquipment)"
+        >
+          <span class="point-name">{{ point.name }}</span>
+          <span class="point-type">{{ point.type }}</span>
+          <span v-if="isPointSelected(point.id)" class="selected-indicator">✓</span>
+        </div>
+      </div>
     </div>
 
     <!-- Point Picker -->
@@ -100,6 +143,18 @@
         </button>
       </div>
     </div>
+
+    <!-- Smart Selection Modal -->
+    <SmartSelectionModal
+      :show="showSmartModal"
+      :current-equipment="currentEquipment"
+      :available-equipment="availableEquipment"
+      :equipment-points="equipmentPoints"
+      :selected-points="selectedPoints"
+      :alarms="alarms"
+      @close="showSmartModal = false"
+      @add-points="handleSmartSelectionPoints"
+    />
   </div>
 </template>
 
@@ -111,6 +166,7 @@
  */
 
 import { ref, computed } from 'vue'
+import SmartSelectionModal from './SmartSelectionModal.vue'
 
 const props = defineProps({
   modelValue: {
@@ -128,6 +184,10 @@ const props = defineProps({
   equipmentPoints: {
     type: Object,
     default: () => ({})
+  },
+  alarms: {
+    type: Array,
+    default: () => []
   }
 })
 
@@ -136,6 +196,8 @@ const emit = defineEmits(['update:modelValue', 'points-changed'])
 const selectedPoints = ref([...props.modelValue])
 const showPointPicker = ref(false)
 const showTypeSelector = ref(false)
+const showMoreFromDevice = ref(false)
+const showSmartModal = ref(false)
 const pointSearchQuery = ref('')
 const expandedEquipment = ref({})
 
@@ -184,6 +246,14 @@ const addPoint = (point, equipment) => {
   emitChange()
 }
 
+const togglePoint = (point, equipment) => {
+  if (isPointSelected(point.id)) {
+    removePoint(point.id)
+  } else {
+    addPoint(point, equipment)
+  }
+}
+
 const removePoint = (pointId) => {
   selectedPoints.value = selectedPoints.value.filter(p => p.id !== pointId)
   emitChange()
@@ -224,6 +294,56 @@ const toggleEquipment = (equipmentId) => {
   expandedEquipment.value[equipmentId] = !expandedEquipment.value[equipmentId]
 }
 
+// Point limit constants
+const RECOMMENDED_LIMIT = 10
+const HARD_LIMIT = 50
+
+// Smart Selection Handler with limit enforcement
+const handleSmartSelectionPoints = (points) => {
+  const currentCount = selectedPoints.value.length
+  const newPointsCount = points.filter(p => !isPointSelected(p.id)).length
+  const totalAfterAdd = currentCount + newPointsCount
+  
+  // Check if we're exceeding recommended limit
+  if (totalAfterAdd > RECOMMENDED_LIMIT) {
+    const confirmed = confirm(
+      `⚠️ Performance Warning\n\n` +
+      `You're about to add ${newPointsCount} points to ${currentCount} existing points (${totalAfterAdd} total).\n\n` +
+      `Recommended limit: ${RECOMMENDED_LIMIT} points\n` +
+      `Hard limit: ${HARD_LIMIT} points\n\n` +
+      `Loading many points may slow down the chart and system.\n\n` +
+      `Continue anyway?`
+    )
+    
+    if (!confirmed) {
+      return
+    }
+  }
+  
+  // Hard limit enforcement
+  if (totalAfterAdd > HARD_LIMIT) {
+    alert(
+      `❌ Hard Limit Exceeded\n\n` +
+      `Cannot add ${newPointsCount} points.\n` +
+      `Current: ${currentCount} points\n` +
+      `Maximum allowed: ${HARD_LIMIT} points\n\n` +
+      `Please remove some points first.`
+    )
+    return
+  }
+  
+  // Add the points
+  points.forEach(pointData => {
+    const point = pointData
+    const equipment = pointData.equipment
+    
+    if (!isPointSelected(point.id)) {
+      addPoint(point, equipment)
+    }
+  })
+  showSmartModal.value = false
+}
+
 const emitChange = () => {
   emit('update:modelValue', selectedPoints.value)
   emit('points-changed', selectedPoints.value)
@@ -251,10 +371,36 @@ const emitChange = () => {
   color: var(--color-text-primary);
 }
 
+.point-count-indicator {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
 .selected-count {
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-md);
   color: var(--color-accent-primary);
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--font-weight-bold);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: rgba(59, 130, 246, 0.1);
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.selected-count.count-warning {
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.selected-count.count-danger {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.count-label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  font-weight: var(--font-weight-medium);
 }
 
 /* Selected Points */
@@ -313,6 +459,18 @@ const emitChange = () => {
   font-size: var(--font-size-sm);
   min-height: unset;
   text-align: left;
+}
+
+.action-btn.smart-action {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(139, 92, 246, 0.15));
+  border: 2px solid var(--color-accent-primary);
+  color: var(--color-accent-primary);
+  font-weight: var(--font-weight-semibold);
+}
+
+.action-btn.smart-action:hover {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.25), rgba(139, 92, 246, 0.25));
+  transform: translateX(4px);
 }
 
 /* Point Picker */
@@ -463,10 +621,37 @@ const emitChange = () => {
   color: white;
 }
 
+/* More from Device Section */
+.more-from-device {
+  margin-top: var(--spacing-md);
+  padding: var(--spacing-md);
+  max-height: 300px;
+  overflow-y: auto;
+  background-color: var(--color-bg-primary);
+  border-radius: var(--radius-md);
+}
+
+.section-title {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  margin-bottom: var(--spacing-sm);
+}
+
+.device-points-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
 /* Mobile */
 @media (max-width: 768px) {
   .point-picker {
     max-height: 300px;
+  }
+  
+  .more-from-device {
+    max-height: 250px;
   }
 }
 </style>

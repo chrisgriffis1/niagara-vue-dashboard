@@ -144,3 +144,4 @@ class MockEquipmentService {
 }
 
 export default MockEquipmentService;
+

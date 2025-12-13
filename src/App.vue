@@ -42,6 +42,14 @@
         <div class="header-status">
           <span class="status-dot ok"></span>
           <span>{{ isNiagaraEnv ? 'Live Station' : 'Local Dev' }}</span>
+          
+          <!-- Cache Status Indicator -->
+          <span v-if="cacheStatus.isCaching" class="cache-status">
+            📊 Caching histories... {{ cacheStatus.progress }}%
+          </span>
+          <span v-else-if="cacheStatus.cached > 0" class="cache-status success">
+            ⚡ {{ cacheStatus.cached }} histories cached
+          </span>
         </div>
       </div>
       
@@ -61,6 +69,9 @@
       </button>
       
       <div class="persistence-controls">
+        <button @click="openSettings" class="settings-btn" title="Settings">
+          ⚙️ Settings
+        </button>
         <button @click="saveCurrentLayout" :disabled="savingLayout">
           {{ savingLayout ? 'Saving…' : '💾 Save layout' }}
         </button>
@@ -138,6 +149,13 @@
         </div>
       </div>
     </main>
+
+    <!-- Settings Panel -->
+    <SettingsPanel 
+      :show="showSettings"
+      @close="showSettings = false"
+      @config-updated="onConfigUpdated"
+    />
   </div>
 </template>
 
@@ -147,7 +165,10 @@ import MockDataAdapter from './adapters/MockDataAdapter'
 import NiagaraBQLAdapter from './adapters/NiagaraBQLAdapter'
 import BuildingView from './views/BuildingView.vue'
 import FeedbackModal from './components/FeedbackModal.vue'
+import SettingsPanel from './components/settings/SettingsPanel.vue'
 import { useDeviceStore } from './stores/deviceStore'
+import configService from './services/ConfigurationService'
+import historyCacheService from './services/HistoryCacheService'
 import {
   cacheDashboardState,
   loadCachedDashboardState,
@@ -198,9 +219,18 @@ const stats = ref(null)
 const dataLoaded = ref(false)
 const testResults = ref([])
 const showBuildingView = ref(false)
+const showSettings = ref(false)
 const persistenceMessage = ref('')
 const savingLayout = ref(false)
 const loadingLayout = ref(false)
+
+// History cache status
+const cacheStatus = ref({
+  isCaching: false,
+  progress: 0,
+  total: 0,
+  cached: 0
+})
 
 // Environment and dataset state
 const isNiagaraEnv = ref(false)
@@ -225,6 +255,16 @@ const toggleFabMenu = () => {
 const openFeedback = () => {
   fabMenuOpen.value = false
   showFeedbackModal.value = true
+}
+
+const openSettings = () => {
+  showSettings.value = true
+}
+
+const onConfigUpdated = () => {
+  // Reload the page to apply new configuration
+  console.log('Configuration updated, consider refreshing data')
+  // Optionally trigger a data refresh here
 }
 
 const onFeedbackSubmitted = (data) => {
@@ -327,6 +367,10 @@ onMounted(async () => {
     loadingProgress.value = 10
     console.log('🚀 App mounting, initializing adapter...')
     console.log('🔍 URL:', typeof window !== 'undefined' ? window.location.href : 'N/A')
+    
+    // Initialize configuration service
+    await configService.init()
+    console.log('✅ Configuration service initialized')
     
     // Check if we're in Niagara environment
     let isNiagara = checkNiagara()
@@ -433,6 +477,34 @@ onMounted(async () => {
     
     loadingProgress.value = 100
     console.log('✓ App initialized successfully')
+    
+    // Start background history caching (non-blocking)
+    console.log('🚀 Starting background history cache...')
+    setTimeout(async () => {
+      try {
+        cacheStatus.value.isCaching = true
+        loadingMessage.value = 'Caching histories for instant charts...'
+        
+        // Start caching with progress updates
+        const updateInterval = setInterval(() => {
+          const stats = historyCacheService.getStats()
+          cacheStatus.value.cached = stats.cachedPoints
+          cacheStatus.value.total = stats.totalPoints
+          cacheStatus.value.progress = stats.totalPoints > 0 
+            ? Math.round((stats.cachedPoints / stats.totalPoints) * 100)
+            : 0
+        }, 500)
+        
+        await historyCacheService.startCaching(adapter, deviceStore)
+        
+        clearInterval(updateInterval)
+        cacheStatus.value.isCaching = false
+        console.log('✅ History cache complete - charts will now load instantly!')
+      } catch (error) {
+        cacheStatus.value.isCaching = false
+        console.warn('⚠️ History caching failed (non-critical):', error)
+      }
+    }, 1000) // Start 1 second after app loads
     
     // Hide loading overlay with slight delay for smooth transition
     console.log('⏰ Scheduling loading overlay hide in 300ms...')
@@ -636,8 +708,32 @@ const testAdapter = async () => {
 .header-status {
   display: flex;
   align-items: center;
+  gap: var(--spacing-md);
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
+  flex-wrap: wrap;
+}
+
+.cache-status {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: var(--border-radius);
+  font-size: var(--font-size-xs);
+  color: var(--color-accent);
+  animation: pulse 2s infinite;
+}
+
+.cache-status.success {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.3);
+  color: var(--color-success);
+  animation: none;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
 }
 
 .app-main {

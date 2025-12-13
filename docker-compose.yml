@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  niagara-navigator:
+    build: .
+    ports:
+      - "8080:80"
+    container_name: niagara-navigator
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+    volumes:
+      # Optional: Mount config for persistent settings
+      - ./config:/usr/share/nginx/html/config
+    networks:
+      - niagara-net
+
+networks:
+  niagara-net:
+    driver: bridge
+
