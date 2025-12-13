@@ -1,5 +1,5 @@
 <template>
-  <div v-if="showFilter" class="filter-section card">
+  <div v-if="showFilter" class="filter-section card" ref="filterSectionEl">
     <!-- Equipment Type Filter -->
     <div class="filter-group">
       <label>Equipment Type</label>
@@ -171,7 +171,9 @@
 </template>
 
 <script setup>
-import { watch } from 'vue'
+import { watch, ref, onMounted } from 'vue'
+
+const filterSectionEl = ref(null)
 
 const props = defineProps({
   showFilter: {
@@ -231,6 +233,27 @@ const props = defineProps({
 // Debug: Watch showFilter prop changes
 watch(() => props.showFilter, (newVal, oldVal) => {
   console.log(`🎛️ FilterSection showFilter prop changed: ${oldVal} → ${newVal}`)
+  if (newVal) {
+    // Use nextTick to ensure DOM is updated
+    setTimeout(() => {
+      console.log('🎛️ FilterSection element:', filterSectionEl.value)
+      if (filterSectionEl.value) {
+        const rect = filterSectionEl.value.getBoundingClientRect()
+        console.log('🎛️ FilterSection position:', { 
+          top: rect.top, 
+          left: rect.left, 
+          width: rect.width, 
+          height: rect.height,
+          display: window.getComputedStyle(filterSectionEl.value).display,
+          visibility: window.getComputedStyle(filterSectionEl.value).visibility
+        })
+      }
+    }, 100)
+  }
+})
+
+onMounted(() => {
+  console.log('🎛️ FilterSection mounted, showFilter:', props.showFilter)
 })
 
 defineEmits([
