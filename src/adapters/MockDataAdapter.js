@@ -144,24 +144,43 @@ class MockDataAdapter {
     }
 
     // Return equipment data from equipment service
-    const equipment = this.equipmentService.getEquipment().map(equip => ({
-      id: equip.id,
-      name: equip.name,
-      type: equip.type,
-      location: equip.location,
-      zone: equip.zone,
-      ord: equip.ord,
-      isPointDevice: equip.isPointDevice || false,
-      currentValue: equip.currentValue,
-      pointCount: this.pointService.getPointsByEquipment(equip.id)?.length || 0,
-      status: this._getEquipmentStatus(equip.id)
-    }));
+    const equipment = this.equipmentService.getEquipment().map(equip => {
+      let currentValue = equip.currentValue;
+      
+      // For point-devices without a value, try to find matching point data
+      if (equip.isPointDevice && (currentValue === undefined || currentValue === null || currentValue === '')) {
+        // Look for a point with matching slotPath or name
+        const matchingPoint = this.pointService.points.find(p => 
+          p.slotPath === equip.slotPath || 
+          p.ord === equip.ord ||
+          p.name === equip.name
+        );
+        if (matchingPoint && matchingPoint.value !== undefined) {
+          currentValue = matchingPoint.value;
+        }
+      }
+      
+      return {
+        id: equip.id,
+        name: equip.name,
+        type: equip.type,
+        location: equip.location,
+        zone: equip.zone,
+        ord: equip.ord,
+        slotPath: equip.slotPath,
+        unit: equip.unit,
+        isPointDevice: equip.isPointDevice || false,
+        currentValue: currentValue,
+        pointCount: this.pointService.getPointsByEquipment(equip.id)?.length || 0,
+        status: this._getEquipmentStatus(equip.id)
+      };
+    });
     
-    // Debug: Count point-devices
+    // Debug: Count point-devices and show their values
     const pointDevices = equipment.filter(e => e.isPointDevice);
     console.log(`🔍 discoverDevices - ${equipment.length} total, ${pointDevices.length} point-devices`);
     if (pointDevices.length > 0) {
-      console.log('📍 First 3 point-devices:', pointDevices.slice(0, 3).map(e => `${e.name} (${e.type})`).join(', '));
+      console.log('📍 First 3 point-devices:', pointDevices.slice(0, 3).map(e => `${e.name}=${e.currentValue}`).join(', '));
     }
     
     return equipment;

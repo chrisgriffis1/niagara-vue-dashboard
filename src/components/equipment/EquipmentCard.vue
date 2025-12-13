@@ -103,10 +103,20 @@ const handleTrendClick = () => {
 }
 
 // Lifecycle
-onMounted(() => {
-  // Initialize sparkline for equipment with points
-  if (points.trendablePoints.value.length > 0) {
-    miniChart.initializeSparkline()
+onMounted(async () => {
+  // Debug: Log point-device detection
+  if (props.equipment.isPointDevice) {
+    console.log(`📌 Point-device mounted: ${props.equipment.name}, value: ${props.equipment.currentValue}`)
+  }
+  
+  // For regular equipment with points, load points to enable sparkline
+  if (!props.equipment.isPointDevice && props.equipment.pointCount > 0) {
+    await points.loadPoints()
+    
+    // Initialize sparkline after points are loaded
+    if (points.trendablePoints.value.length > 0) {
+      miniChart.initializeSparkline()
+    }
   }
 })
 
