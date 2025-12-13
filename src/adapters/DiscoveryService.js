@@ -127,36 +127,43 @@ class DiscoveryService {
 
       const bql = "station:|slot:/Drivers/BacnetNetwork|bql:select slotPath, displayName, name, out, status from control:ControlPoint";
       const ord = baja.Ord.make(bql);
-      const result = await baja.query(ord);
+      const table = await ord.get();
 
       const points = [];
-      result.getRows().each((record) => {
-        try {
-          const point = {
-            id: record.get('slotPath')?.toString() || `point_${points.length}`,
-            name: record.get('displayName')?.toString() || record.get('name')?.toString() || 'Unknown',
-            displayName: record.get('displayName')?.toString() || record.get('name')?.toString() || '',
-            type: 'Unknown',
-            value: record.get('out')?.getValue?.() || null,
-            status: record.get('status')?.toString() || 'unknown',
-            ord: record.get('slotPath')?.toString() || '',
-            slotPath: record.get('slotPath')?.toString() || ''
-          };
+      const self = this;
+      
+      return new Promise((resolve) => {
+        table.cursor({
+          each: function(record) {
+            try {
+              const point = {
+                id: record.get('slotPath')?.toString() || `point_${points.length}`,
+                name: record.get('displayName')?.toString() || record.get('name')?.toString() || 'Unknown',
+                displayName: record.get('displayName')?.toString() || record.get('name')?.toString() || '',
+                type: 'Unknown',
+                value: record.get('out')?.getValue?.() || null,
+                status: record.get('status')?.toString() || 'unknown',
+                ord: record.get('slotPath')?.toString() || '',
+                slotPath: record.get('slotPath')?.toString() || ''
+              };
 
-          // Infer point type
-          point.type = this._inferPointType(point);
+              // Infer point type
+              point.type = self._inferPointType(point);
 
-          // Check if trendable
-          point.trendable = this._isTrendablePoint(point);
+              // Check if trendable
+              point.trendable = self._isTrendablePoint(point);
 
-          points.push(point);
-        } catch (error) {
-          console.warn('⚠️ Error processing point record:', error);
-        }
+              points.push(point);
+            } catch (error) {
+              console.warn('⚠️ Error processing point record:', error);
+            }
+          },
+          after: function() {
+            console.log(`✅ Discovered ${points.length} points`);
+            resolve(points);
+          }
+        });
       });
-
-      console.log(`✅ Discovered ${points.length} points`);
-      return points;
     } catch (error) {
       console.error('❌ Failed to discover points:', error);
       return [];
@@ -335,30 +342,36 @@ class DiscoveryService {
 
       // Query for location-related points
       const locationOrd = baja.Ord.make("station:|slot:/Drivers/BacnetNetwork|bql:select slotPath, displayName, out from control:ControlPoint where displayName like '%ocation%' or displayName like '%Location%'");
-      const result = await baja.query(locationOrd);
+      const table = await locationOrd.get();
 
       const locations = [];
-      result.getRows().each((record) => {
-        try {
-          const slotPath = record.get('slotPath')?.toString() || '';
-          const displayName = record.get('displayName')?.toString() || '';
-          const value = record.get('out')?.getValue?.()?.toString() || '';
+      
+      return new Promise((resolve) => {
+        table.cursor({
+          each: function(record) {
+            try {
+              const slotPath = record.get('slotPath')?.toString() || '';
+              const displayName = record.get('displayName')?.toString() || '';
+              const value = record.get('out')?.getValue?.()?.toString() || '';
 
-          if (slotPath && displayName && value) {
-            locations.push({
-              slotPath: slotPath,
-              name: displayName,
-              value: value,
-              equipmentId: null // Will be matched later
-            });
+              if (slotPath && displayName && value) {
+                locations.push({
+                  slotPath: slotPath,
+                  name: displayName,
+                  value: value,
+                  equipmentId: null // Will be matched later
+                });
+              }
+            } catch (error) {
+              console.warn('⚠️ Error processing location record:', error);
+            }
+          },
+          after: function() {
+            console.log(`📍 Found ${locations.length} location points`);
+            resolve(locations);
           }
-        } catch (error) {
-          console.warn('⚠️ Error processing location record:', error);
-        }
+        });
       });
-
-      console.log(`📍 Found ${locations.length} location points`);
-      return locations;
     } catch (error) {
       console.error('❌ Failed to discover locations:', error);
       return [];
@@ -378,38 +391,45 @@ class DiscoveryService {
 
       // Query for enum points that might represent zones/locations
       const zoneOrd = baja.Ord.make("station:|slot:/Drivers/BacnetNetwork|bql:select slotPath, displayName, name, facets from control:ControlPoint where facets like '%Enum%'");
-      const result = await baja.query(zoneOrd);
+      const table = await zoneOrd.get();
 
       const zones = [];
-      result.getRows().each((record) => {
-        try {
-          const slotPath = record.get('slotPath')?.toString() || '';
-          const displayName = record.get('displayName')?.toString() || '';
-          const facets = record.get('facets')?.toString() || '';
+      const self = this;
+      
+      return new Promise((resolve) => {
+        table.cursor({
+          each: function(record) {
+            try {
+              const slotPath = record.get('slotPath')?.toString() || '';
+              const displayName = record.get('displayName')?.toString() || '';
+              const facets = record.get('facets')?.toString() || '';
 
-          // Check if this is a location/zone enum
-          if (displayName.toLowerCase().includes('location') ||
-              displayName.toLowerCase().includes('zone') ||
-              displayName.toLowerCase().includes('wing') ||
-              displayName.toLowerCase().includes('level')) {
+              // Check if this is a location/zone enum
+              if (displayName.toLowerCase().includes('location') ||
+                  displayName.toLowerCase().includes('zone') ||
+                  displayName.toLowerCase().includes('wing') ||
+                  displayName.toLowerCase().includes('level')) {
 
-            // Extract enum values from facets
-            const enumValues = this._extractEnumValues(facets);
-            if (enumValues.length > 0) {
-              zones.push({
-                id: slotPath,
-                name: displayName,
-                values: enumValues
-              });
+                // Extract enum values from facets
+                const enumValues = self._extractEnumValues(facets);
+                if (enumValues.length > 0) {
+                  zones.push({
+                    id: slotPath,
+                    name: displayName,
+                    values: enumValues
+                  });
+                }
+              }
+            } catch (error) {
+              console.warn('⚠️ Error processing zone record:', error);
             }
+          },
+          after: function() {
+            console.log(`🏷️ Found ${zones.length} zone enums`);
+            resolve(zones);
           }
-        } catch (error) {
-          console.warn('⚠️ Error processing zone record:', error);
-        }
+        });
       });
-
-      console.log(`🏷️ Found ${zones.length} zone enums`);
-      return zones;
     } catch (error) {
       console.error('❌ Failed to discover zones:', error);
       return [];

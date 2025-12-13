@@ -35,11 +35,29 @@
 
 ## Niagara Integration
 
+### Reference Files (CHECK THESE FIRST!)
+- **ALWAYS check `html/LivePoints.html` for working BajaScript examples**
+- **ALWAYS check `working-patterns/` directory for proven patterns**
+- These contain battle-tested code that works in production
+- When debugging Niagara issues, compare against these working implementations
+- Key areas to reference:
+  - BajaScript initialization and loading
+  - BQL query patterns
+  - Subscription patterns
+  - History data retrieval
+  - Alarm handling
+
 ### BajaScript Patterns
 - Always use `table.cursor({ each: function() {}, after: function() {} })` pattern
 - Use regular functions (not arrow functions) for cursor callbacks
+- **CORRECT PATTERN**: `const table = await baja.Ord.make(bqlString).get()`
+- **WRONG PATTERN**: `const result = await baja.query(ord)` - baja.query does not exist!
+- **CORRECT ITERATION**: `table.cursor({ each: function(record) { ... }, after: function() { ... } })`
+- **WRONG ITERATION**: `result.getRows().each(...)` - getRows() does not exist!
 - Clean slotPath: remove "slot:" prefix, ensure starts with "/"
 - Query from station root for history: `station:|slot:/|bql:...`
+- Check for `baja.Ord` to detect Niagara environment (NOT `baja.query`)
+- `baja.query` is NOT a valid method - use `ord.get()` instead
 
 ### File Compatibility
 - Add `/* @noSnoop */` to all JS/CSS files for Niagara

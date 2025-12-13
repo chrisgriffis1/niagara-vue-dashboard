@@ -51,49 +51,55 @@ class AlarmService {
 
       // Query all current alarms
       const alarmOrd = baja.Ord.make('alarm:|bql:select timestamp,alarmData.sourceName,sourceState,ackState,ackRequired,alarmData.msgText,alarmClass,alarmData.presentValue,alarmData.normalValue,alarmData.location,alarmData.toState order by timestamp desc');
-      const result = await baja.query(alarmOrd);
+      const table = await alarmOrd.get();
 
       const alarms = [];
-      const rows = result.getRows();
+      const self = this;
+      
+      return new Promise((resolve) => {
+        let alarmCount = 0;
+        table.cursor({
+          each: function(record) {
+            try {
+              alarmCount++;
+              const alarmData = {
+                id: `alarm_${alarms.length}`,
+                timestamp: record.get('timestamp')?.toString() || new Date().toISOString(),
+                sourceName: record.get('alarmData.sourceName')?.toString() || '',
+                sourceState: record.get('sourceState')?.toString() || 'normal',
+                ackState: record.get('ackState')?.toString() || 'unacked',
+                ackRequired: record.get('ackRequired')?.toString() === 'true',
+                msgText: record.get('alarmData.msgText')?.toString() || '',
+                alarmClass: record.get('alarmClass')?.toString() || 'default',
+                presentValue: record.get('alarmData.presentValue')?.toString() || '',
+                normalValue: record.get('alarmData.normalValue')?.toString() || '',
+                location: record.get('alarmData.location')?.toString() || '',
+                toState: record.get('alarmData.toState')?.toString() || ''
+              };
 
-      console.log(`🚨 Found ${rows.length} alarms in system`);
+              // Enhanced alarm processing
+              const alarm = self._processAlarmRecord(alarmData);
+              alarms.push(alarm);
 
-      // Process each alarm
-      rows.each((record) => {
-        try {
-          const alarmData = {
-            id: `alarm_${alarms.length}`,
-            timestamp: record.get('timestamp')?.toString() || new Date().toISOString(),
-            sourceName: record.get('alarmData.sourceName')?.toString() || '',
-            sourceState: record.get('sourceState')?.toString() || 'normal',
-            ackState: record.get('ackState')?.toString() || 'unacked',
-            ackRequired: record.get('ackRequired')?.toString() === 'true',
-            msgText: record.get('alarmData.msgText')?.toString() || '',
-            alarmClass: record.get('alarmClass')?.toString() || 'default',
-            presentValue: record.get('alarmData.presentValue')?.toString() || '',
-            normalValue: record.get('alarmData.normalValue')?.toString() || '',
-            location: record.get('alarmData.location')?.toString() || '',
-            toState: record.get('alarmData.toState')?.toString() || ''
-          };
+              console.log(`🔔 DEBUG: sourceState="${alarmData.sourceState}"`);
+            } catch (error) {
+              console.warn('⚠️ Error processing alarm record:', error);
+            }
+          },
+          after: function() {
+            console.log(`🚨 Found ${alarmCount} alarms in system`);
+            
+            // Update alarms in adapter
+            self.adapter.alarms = alarms;
 
-          // Enhanced alarm processing
-          const alarm = this._processAlarmRecord(alarmData);
-          alarms.push(alarm);
+            // Notify subscribers
+            self._notifyAlarmSubscribers(alarms);
 
-          console.log(`🔔 DEBUG: sourceState="${alarmData.sourceState}"`);
-        } catch (error) {
-          console.warn('⚠️ Error processing alarm record:', error);
-        }
+            console.log(`✅ Loaded ${alarms.length} alarms`);
+            resolve(alarms);
+          }
+        });
       });
-
-      // Update alarms in adapter
-      this.adapter.alarms = alarms;
-
-      // Notify subscribers
-      this._notifyAlarmSubscribers(alarms);
-
-      console.log(`✅ Loaded ${alarms.length} alarms`);
-      return alarms;
     } catch (error) {
       console.error('❌ Failed to start alarm monitoring:', error);
       return [];

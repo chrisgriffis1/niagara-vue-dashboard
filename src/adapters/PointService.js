@@ -34,43 +34,50 @@ class PointService {
       // Query points for this equipment
       const bql = `station:|slot:/Drivers/BacnetNetwork|bql:select slotPath, displayName, name, out, status where slotPath like '*${equip.slotPath}*'`;
       const ord = baja.Ord.make(bql);
-      const result = await baja.query(ord);
+      const table = await ord.get();
 
       const points = [];
-      result.getRows().each((record) => {
-        try {
-          const point = {
-            id: record.get('slotPath')?.toString() || `point_${points.length}`,
-            name: record.get('displayName')?.toString() || record.get('name')?.toString() || 'Unknown',
-            displayName: record.get('displayName')?.toString() || record.get('name')?.toString() || '',
-            type: 'Unknown',
-            value: record.get('out')?.getValue?.() || null,
-            status: record.get('status')?.toString() || 'unknown',
-            ord: record.get('slotPath')?.toString() || '',
-            slotPath: record.get('slotPath')?.toString() || '',
-            equipmentId: equipmentId
-          };
+      const self = this;
+      
+      return new Promise((resolve) => {
+        table.cursor({
+          each: function(record) {
+            try {
+              const point = {
+                id: record.get('slotPath')?.toString() || `point_${points.length}`,
+                name: record.get('displayName')?.toString() || record.get('name')?.toString() || 'Unknown',
+                displayName: record.get('displayName')?.toString() || record.get('name')?.toString() || '',
+                type: 'Unknown',
+                value: record.get('out')?.getValue?.() || null,
+                status: record.get('status')?.toString() || 'unknown',
+                ord: record.get('slotPath')?.toString() || '',
+                slotPath: record.get('slotPath')?.toString() || '',
+                equipmentId: equipmentId
+              };
 
-          // Infer point type and check if trendable
-          point.type = this._inferPointType(point);
-          point.trendable = this._isTrendablePoint(point);
+              // Infer point type and check if trendable
+              point.type = self._inferPointType(point);
+              point.trendable = self._isTrendablePoint(point);
 
-          points.push(point);
-        } catch (error) {
-          console.warn('⚠️ Error processing point record:', error);
-        }
+              points.push(point);
+            } catch (error) {
+              console.warn('⚠️ Error processing point record:', error);
+            }
+          },
+          after: function() {
+            // Cache points
+            points.forEach(point => {
+              self.adapter.pointsMap.set(point.id, point);
+            });
+
+            // Update equipment mapping
+            self.adapter.equipmentPointsMap.set(equipmentId, points);
+
+            console.log(`✅ Loaded ${points.length} points for ${equip.name}`);
+            resolve(points);
+          }
+        });
       });
-
-      // Cache points
-      points.forEach(point => {
-        this.adapter.pointsMap.set(point.id, point);
-      });
-
-      // Update equipment mapping
-      this.adapter.equipmentPointsMap.set(equipmentId, points);
-
-      console.log(`✅ Loaded ${points.length} points for ${equip.name}`);
-      return points;
     } catch (error) {
       console.error('❌ Failed to load points for equipment:', equipmentId, error);
       return [];

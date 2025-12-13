@@ -72,37 +72,44 @@ class HistoryService {
 
       // Query all history configs from station root
       const historyOrd = baja.Ord.make('station:|slot:/|bql:select slotPath as \'slotPath\\\\\',id as \'id\\\\\',toString as \'toString\\\\\' from history:HistoryConfig');
-      const result = await baja.query(historyOrd);
+      const table = await historyOrd.get();
 
-      console.log(`🔄 Found ${result.getRows().length} history configs`);
+      const self = this;
+      let configCount = 0;
+      
+      return new Promise((resolve) => {
+        table.cursor({
+          each: function(record) {
+            try {
+              configCount++;
+              const slotPath = record.get('slotPath')?.toString() || '';
+              const historyId = record.get('toString')?.toString() || record.get('id')?.toString() || '';
 
-      // Process each history config
-      result.getRows().each((record) => {
-        try {
-          const slotPath = record.get('slotPath')?.toString() || '';
-          const historyId = record.get('toString')?.toString() || record.get('id')?.toString() || '';
+              if (slotPath && historyId) {
+                // Clean slotPath to remove "slot:" prefix and ensure starts with "/"
+                let cleanSlotPath = slotPath.replace(/^slot:/, '');
+                if (!cleanSlotPath.startsWith('/')) {
+                  cleanSlotPath = '/' + cleanSlotPath;
+                }
 
-          if (slotPath && historyId) {
-            // Clean slotPath to remove "slot:" prefix and ensure starts with "/"
-            let cleanSlotPath = slotPath.replace(/^slot:/, '');
-            if (!cleanSlotPath.startsWith('/')) {
-              cleanSlotPath = '/' + cleanSlotPath;
+                // Create lookup key from slotPath (remove /historyConfig suffix for point matching)
+                const lookupKey = cleanSlotPath.replace(/\/historyConfig$/, '').toLowerCase();
+
+                self.adapter.historyIdCache.set(lookupKey, historyId);
+              }
+            } catch (error) {
+              console.warn('⚠️ Error processing history config:', error);
             }
-
-            // Create lookup key from slotPath (remove /historyConfig suffix for point matching)
-            const lookupKey = cleanSlotPath.replace(/\/historyConfig$/, '').toLowerCase();
-
-            this.adapter.historyIdCache.set(lookupKey, historyId);
+          },
+          after: function() {
+            console.log(`🔄 Found ${configCount} history configs`);
+            // Save to localStorage for instant loading next time
+            self._saveHistoryIdCache();
+            console.log(`✅ Cached ${self.adapter.historyIdCache.size} history IDs`);
+            resolve();
           }
-        } catch (error) {
-          console.warn('⚠️ Error processing history config:', error);
-        }
+        });
       });
-
-      // Save to localStorage for instant loading next time
-      this._saveHistoryIdCache();
-
-      console.log(`✅ Cached ${this.adapter.historyIdCache.size} history IDs`);
     } catch (error) {
       console.error('❌ Failed to cache history IDs:', error);
     }
@@ -319,21 +326,35 @@ class HistoryService {
       // Find history config that matches this point's slotPath
       const bql = `station:|slot:/|bql:select slotPath as 'slotPath\\\\',id as 'id\\\\',toString as 'toString\\\\' from history:HistoryConfig where slotPath like '*${point.slotPath || point.ord}*'`;
       const ord = baja.Ord.make(bql);
-      const result = await baja.query(ord);
+      const table = await ord.get();
 
-      if (result.getRows().length > 0) {
-        const record = result.getRows().get(0);
-        const historyId = record.get('toString')?.toString() || record.get('id')?.toString() || '';
+      const self = this;
+      
+      return new Promise((resolve) => {
+        let found = false;
+        table.cursor({
+          each: function(record) {
+            if (!found) {
+              const historyId = record.get('toString')?.toString() || record.get('id')?.toString() || '';
 
-        if (historyId) {
-          // Cache for future lookups
-          if (slotPath) {
-            const lookupKey = cleanSlotPath.toLowerCase();
-            this.adapter.historyIdCache.set(lookupKey, historyId);
+              if (historyId) {
+                found = true;
+                // Cache for future lookups
+                if (slotPath) {
+                  const lookupKey = cleanSlotPath.toLowerCase();
+                  self.adapter.historyIdCache.set(lookupKey, historyId);
+                }
+                resolve(historyId);
+              }
+            }
+          },
+          after: function() {
+            if (!found) {
+              resolve(null);
+            }
           }
-          return historyId;
-        }
-      }
+        });
+      });
     } catch (error) {
       console.warn('⚠️ Failed to find history ID for point:', point.name, error);
     }
