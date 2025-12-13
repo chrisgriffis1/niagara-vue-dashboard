@@ -13,7 +13,37 @@
       </div>
     </div>
     
+    <!-- Sparkline (outside, always visible if data available) -->
+    <div v-if="miniChart.hasSparklineData.value" class="stack-sparkline">
+      <EquipmentSparkline
+        :has-sparkline-data="miniChart.hasSparklineData.value"
+        :mini-chart-data="miniChart.miniChartData.value"
+        :loading-mini-chart="miniChart.loadingMiniChart.value"
+        :sparkline-attempted="miniChart.sparklineAttempted.value"
+        :selected-mini-point="miniChart.selectedMiniPoint.value"
+        :chart-color="miniChart.getMiniChartColor()"
+      />
+    </div>
+    
     <div v-if="isExpanded" class="stack-devices">
+      <!-- Point Selector Tabs (controls outside sparkline) -->
+      <div v-if="devices.length > 1" class="point-selector-section">
+        <div class="selector-header">
+          <span class="selector-label">Select Point for Sparkline:</span>
+        </div>
+        <div class="point-tabs">
+          <button
+            v-for="device in devices"
+            :key="device.id"
+            @click.stop="selectDevice(device)"
+            :class="['point-tab', { active: selectedDevice?.id === device.id }]"
+            :title="device.name"
+          >
+            {{ device.name }}
+          </button>
+        </div>
+      </div>
+
       <div 
         v-for="device in devices" 
         :key="device.id" 
@@ -36,7 +66,9 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, toRef } from 'vue'
+import EquipmentSparkline from './EquipmentSparkline.vue'
+import { useEquipmentMiniChart } from '../../composables/useEquipmentMiniChart'
 
 const props = defineProps({
   deviceType: {
@@ -49,11 +81,47 @@ const props = defineProps({
   }
 })
 
+const isExpanded = ref(false)
+const selectedDevice = ref(null)
+
+// Create a computed ref of devices that acts like trendablePoints
+const trendableDevices = computed(() => props.devices)
+
+// Use mini chart composable with the first device as equipment ref
+const firstDevice = computed(() => props.devices[0])
+const miniChart = useEquipmentMiniChart(toRef(() => firstDevice.value), trendableDevices)
+
 onMounted(() => {
   console.log(`🃏 Stack card mounted: ${props.deviceType} (${props.devices.length} devices)`)
+  
+  // Initialize sparkline with first device
+  if (props.devices.length > 0) {
+    selectedDevice.value = props.devices[0]
+    loadSparklineForDevice(props.devices[0])
+  }
 })
 
-const isExpanded = ref(false)
+// Load sparkline data for a specific device
+const loadSparklineForDevice = (device) => {
+  // Create a pseudo-point from the device
+  const pseudoPoint = {
+    id: device.id,
+    name: device.name,
+    slotPath: device.slotPath,
+    ord: device.ord,
+    type: device.type,
+    unit: device.unit,
+    hasHistory: true
+  }
+  
+  miniChart.loadMiniChartData(pseudoPoint)
+}
+
+// Handle device selection
+const selectDevice = (device) => {
+  selectedDevice.value = device
+  loadSparklineForDevice(device)
+}
 
 // Determine if this type uses boolean values
 const isBooleanType = computed(() => {
@@ -189,6 +257,10 @@ const toggleExpand = () => {
   border-color: var(--color-border-hover, #555);
 }
 
+.stack-sparkline {
+  padding: 0 16px 12px 16px;
+}
+
 .stack-header {
   display: flex;
   align-items: center;
@@ -274,6 +346,51 @@ const toggleExpand = () => {
   border-top: 1px solid var(--color-border, #333);
   max-height: 400px; /* Limit height so card doesn't grow too tall */
   overflow-y: auto; /* Scroll if more than 400px of content */
+}
+
+.point-selector-section {
+  background: var(--color-bg-tertiary, #252540);
+  border-bottom: 1px solid var(--color-border, #333);
+  padding: 12px 16px;
+}
+
+.selector-header {
+  margin-bottom: 8px;
+}
+
+.selector-label {
+  font-size: 12px;
+  color: var(--color-text-secondary, #888);
+  font-weight: 500;
+}
+
+.point-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.point-tab {
+  background: var(--color-bg-secondary, #1a1a2e);
+  border: 1px solid var(--color-border, #333);
+  color: var(--color-text-secondary, #888);
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.2s ease;
+}
+
+.point-tab:hover {
+  background: var(--color-primary, #3b82f6);
+  color: white;
+  border-color: var(--color-primary, #3b82f6);
+}
+
+.point-tab.active {
+  background: var(--color-primary, #3b82f6);
+  color: white;
+  border-color: var(--color-primary, #3b82f6);
 }
 
 .device-row {
