@@ -83,7 +83,7 @@ class HistoryService {
             try {
               configCount++;
               const slotPath = record.get('slotPath')?.toString() || '';
-              const historyId = record.get('toString')?.toString() || record.get('id')?.toString() || '';
+              const historyId = record.get('id')?.toString() || record.get('toString')?.toString() || '';
 
               if (slotPath && historyId) {
                 // Clean slotPath to remove "slot:" prefix and ensure starts with "/"
@@ -340,7 +340,7 @@ class HistoryService {
         table.cursor({
           each: function(record) {
             if (!found) {
-              const historyId = record.get('toString')?.toString() || record.get('id')?.toString() || '';
+              const historyId = record.get('id')?.toString() || record.get('toString')?.toString() || '';
 
               if (historyId) {
                 found = true;
