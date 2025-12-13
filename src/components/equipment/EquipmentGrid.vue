@@ -1,212 +1,39 @@
 <template>
   <div class="equipment-grid-container">
-    <!-- Grid Header -->
-    <div class="grid-header">
-      <div class="header-info">
-        <h2>Equipment Overview</h2>
-        <p class="equipment-count">
-          {{ filteredEquipment.length }} {{ filteredEquipment.length === 1 ? 'device' : 'devices' }}
-          <span v-if="searchQuery || hasActiveFilters" class="filter-indicator">
-            (filtered)
-          </span>
-        </p>
-      </div>
-      <div class="header-actions">
-        <button 
-          v-if="equipmentTypes.length > 1"
-          @click="toggleFilter" 
-          class="filter-btn"
-        >
-          {{ showFilter ? 'Hide Filters' : 'Filter' }}
-        </button>
-        <button @click="refreshEquipment" :disabled="loading">
-          {{ loading ? 'Loading...' : 'Refresh' }}
-        </button>
-        <button @click="forceRefresh" :disabled="loading" class="force-refresh-btn" title="Clear cache and reload all data">
-          🔄 Force Refresh
-        </button>
-      </div>
-    </div>
+    <GridHeader
+      :equipment-count="filteredEquipment.length"
+      :has-filters="!!searchQuery || hasActiveFilters"
+      :show-filter="showFilter"
+      :loading="loading"
+      :show-filter-button="equipmentTypes.length > 1"
+      @toggle-filter="toggleFilter"
+      @refresh="refreshEquipment"
+      @force-refresh="forceRefresh"
+    />
 
-    <!-- Search Bar -->
-    <div class="search-section">
-      <div class="search-box">
-        <span class="search-icon">🔍</span>
-        <input
-          v-model="searchQuery"
-          type="text"
-          placeholder="Search equipment by name, type, or location... (Press / to focus)"
-          class="search-input"
-          @keydown.esc="searchQuery = ''"
-        />
-        <button 
-          v-if="searchQuery"
-          @click="searchQuery = ''" 
-          class="clear-search"
-          title="Clear search"
-        >
-          ✕
-        </button>
-      </div>
-    </div>
+    <SearchBar
+      v-model="searchQuery"
+      @clear="searchQuery = ''"
+    />
 
-    <!-- Filter Section -->
-    <div v-if="showFilter" class="filter-section card">
-      <!-- Equipment Type Filter -->
-      <div class="filter-group">
-        <label>Equipment Type</label>
-        <div class="filter-chips">
-          <button
-            :class="['chip', { active: selectedType === null }]"
-            @click="selectedType = null"
-          >
-            All ({{ filteredEquipment.length }})
-          </button>
-          <button
-            v-for="type in equipmentTypes"
-            :key="type"
-            :class="['chip', { active: selectedType === type }]"
-            @click="selectedType = type"
-          >
-            {{ type }} ({{ getTypeCount(type) }})
-          </button>
-        </div>
-      </div>
-
-      <!-- Location/Zone Filter -->
-      <div class="filter-group">
-        <label>Location / Zone</label>
-        <div class="filter-chips">
-          <button
-            :class="['chip', { active: selectedLocation === null }]"
-            @click="selectedLocation = null"
-          >
-            All Locations
-          </button>
-          <button
-            v-for="location in equipmentLocations"
-            :key="location"
-            :class="['chip', { active: selectedLocation === location }]"
-            @click="selectedLocation = location"
-          >
-            {{ location }} ({{ getLocationCount(location) }})
-          </button>
-        </div>
-      </div>
-
-      <!-- Alarm Filter -->
-      <div class="filter-group">
-        <label>Alarm & Status</label>
-        <div class="filter-chips">
-          <button
-            :class="['chip', { active: selectedAlarmFilter === null || selectedAlarmFilter === 'all' }]"
-            @click="selectedAlarmFilter = null"
-          >
-            All Equipment
-          </button>
-          <button
-            :class="['chip alarm-chip', { active: selectedAlarmFilter === 'with-alarms' }]"
-            @click="selectedAlarmFilter = 'with-alarms'"
-          >
-            🔔 With Alarms ({{ getAlarmCount('with-alarms') }})
-          </button>
-          <button
-            v-if="getAlarmCount('critical') > 0"
-            :class="['chip alarm-chip critical', { active: selectedAlarmFilter === 'critical' }]"
-            @click="selectedAlarmFilter = 'critical'"
-          >
-            ⚠ Critical ({{ getAlarmCount('critical') }})
-          </button>
-          <button
-            v-if="getAlarmCount('high') > 0"
-            :class="['chip alarm-chip high', { active: selectedAlarmFilter === 'high' }]"
-            @click="selectedAlarmFilter = 'high'"
-          >
-            ⚡ High ({{ getAlarmCount('high') }})
-          </button>
-          <button
-            v-if="getAlarmCount('medium') > 0"
-            :class="['chip alarm-chip medium', { active: selectedAlarmFilter === 'medium' }]"
-            @click="selectedAlarmFilter = 'medium'"
-          >
-            ℹ Medium ({{ getAlarmCount('medium') }})
-          </button>
-          <button
-            v-if="getAlarmCount('warning') > 0"
-            :class="['chip alarm-chip warning', { active: selectedAlarmFilter === 'warning' }]"
-            @click="selectedAlarmFilter = 'warning'"
-          >
-            ⚠ Warning ({{ getAlarmCount('warning') }})
-          </button>
-        </div>
-      </div>
-
-      <!-- Advanced Filters (Collapsible) -->
-      <div class="filter-group advanced-filters">
-        <button 
-          @click="showAdvancedFilters = !showAdvancedFilters"
-          class="advanced-toggle"
-        >
-          {{ showAdvancedFilters ? '▼' : '▶' }} Advanced Filters
-          <span v-if="selectedStatusFilter" class="active-indicator">•</span>
-        </button>
-        
-        <div v-if="showAdvancedFilters" class="advanced-content">
-          <!-- Communication Status -->
-          <div class="sub-filter-group">
-            <label>Communication Status</label>
-            <div class="filter-chips">
-              <button
-                :class="['chip', { active: selectedStatusFilter === null }]"
-                @click="selectedStatusFilter = null"
-              >
-                All
-              </button>
-              <button
-                :class="['chip status-chip', { active: selectedStatusFilter === 'online' }]"
-                @click="selectedStatusFilter = 'online'"
-              >
-                📡 Online ({{ getStatusCount('online') }})
-              </button>
-              <button
-                :class="['chip status-chip', { active: selectedStatusFilter === 'offline' }]"
-                @click="selectedStatusFilter = 'offline'"
-                disabled
-                title="No offline equipment (coming soon)"
-              >
-                📴 Offline (0)
-              </button>
-              <button
-                :class="['chip status-chip', { active: selectedStatusFilter === 'stale' }]"
-                @click="selectedStatusFilter = 'stale'"
-                disabled
-                title="Stale data detection (coming soon)"
-              >
-                ⏱ Stale Data (0)
-              </button>
-            </div>
-          </div>
-
-          <!-- Future Filters Placeholder -->
-          <div class="coming-soon">
-            <p>🔜 Coming Soon:</p>
-            <ul>
-              <li>Override Status (manual overrides)</li>
-              <li>Operating Mode (cooling/heating/off)</li>
-              <li>Occupancy Status (occupied/unoccupied)</li>
-              <li>Running Status (on/off)</li>
-            </ul>
-          </div>
-        </div>
-      </div>
-
-      <!-- Clear Filters Button -->
-      <div v-if="hasActiveFilters" class="filter-actions">
-        <button @click="clearFilters" class="clear-filters-btn">
-          ✕ Clear All Filters
-        </button>
-      </div>
-    </div>
+    <FilterSection
+      :show-filter="showFilter"
+      :selected-type="selectedType"
+      :selected-location="selectedLocation"
+      :selected-alarm-filter="selectedAlarmFilter"
+      :show-advanced-filters="showAdvancedFilters"
+      :selected-communication-status="selectedCommunicationStatus"
+      :equipment-types="equipmentTypes"
+      :equipment-locations="equipmentLocations"
+      :total-count="filteredEquipment.length"
+      :has-active-filters="hasActiveFilters"
+      @update:selected-type="selectedType = $event"
+      @update:selected-location="selectedLocation = $event"
+      @update:selected-alarm-filter="selectedAlarmFilter = $event"
+      @update:show-advanced-filters="showAdvancedFilters = $event"
+      @update:selected-communication-status="selectedCommunicationStatus = $event"
+      @clear-filters="clearFilters"
+    />
 
     <!-- Loading State -->
     <div v-if="loading && equipmentList.length === 0" class="loading-state">
@@ -230,29 +57,31 @@
       </button>
     </div>
 
-    <!-- Equipment Grid -->
-    <div v-else class="equipment-grid">
-      <EquipmentCard
-        v-for="equipment in filteredEquipment"
-        :key="equipment.id"
-        :equipment="equipment"
-        @point-clicked="handlePointClick"
-      />
-    </div>
+    <EquipmentGridDisplay
+      :equipment="filteredEquipment"
+      :loading="loading"
+      :has-active-filters="hasActiveFilters"
+      @point-clicked="handlePointClick"
+      @equipment-clicked="handleEquipmentClick"
+      @clear-filters="clearFilters"
+    />
   </div>
 </template>
 
 <script setup>
 /**
  * EquipmentGrid Component
- * Grid layout for multiple equipment cards with filtering
- * Tesla-inspired design with responsive layout
+ * Main equipment grid with filtering and search
+ * Refactored to use sub-components for maintainability
  */
 
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import EquipmentCard from './EquipmentCard.vue'
 import { useDeviceStore } from '../../stores/deviceStore'
 import { useAlarmStore } from '../../stores/alarmStore'
+import GridHeader from './GridHeader.vue'
+import SearchBar from './SearchBar.vue'
+import FilterSection from './FilterSection.vue'
+import EquipmentGridDisplay from './EquipmentGridDisplay.vue'
 
 const deviceStore = useDeviceStore()
 const alarmStore = useAlarmStore()
@@ -263,305 +92,72 @@ const showFilter = ref(false)
 const showAdvancedFilters = ref(false)
 const searchQuery = ref('')
 const searchInputRef = ref(null)
-const selectedType = ref(null)
-const selectedLocation = ref(null)
-const selectedAlarmFilter = ref(null) // 'all', 'with-alarms', 'critical', 'high', 'medium', 'low', 'warning'
-const selectedStatusFilter = ref(null) // 'all', 'online', 'offline', 'stale'
 
 // Get equipment list from store
-const equipmentList = computed(() => deviceStore.allDevices)
+const equipmentList = computed(() => deviceStore.allDevices || [])
 
 // Get unique equipment types
 const equipmentTypes = computed(() => {
-  const types = [...new Set(equipmentList.value.map(e => e.type))]
+  const types = [...new Set(equipmentList.value.map(e => e?.type).filter(Boolean))]
   return types.sort()
 })
 
 // Get unique zones for filtering - these come from the Location enum points (not tstatLocation)
 // Zones are values like "Wing 300", "ZoneC_S" - typically only 5-6 unique values
 const equipmentLocations = computed(() => {
-  // First try to get zones from adapter
-  const adapter = deviceStore.getAdapter()
-  if (adapter && adapter.getZones) {
-    const zones = adapter.getZones()
-    if (zones && zones.length > 0) {
-      console.log('🗺️ Using zones from adapter:', zones)
-      return zones
-    }
-  }
-  
-  // Fallback: get unique zone values from equipment
-  const zones = [...new Set(
-    equipmentList.value
-      .map(e => e.zone) // Use zone property, not location
-      .filter(z => z && z !== 'Unknown' && z.length >= 2)
-  )]
-  
-  if (zones.length > 0) {
-    return zones.sort()
-  }
-  
-  // Last fallback: use location but only if we have very few unique values (real zones)
-  const locations = [...new Set(
-    equipmentList.value
-      .map(e => e.location)
-      .filter(loc => loc && loc !== 'Unknown' && loc.length >= 2)
-  )]
-  
-  // If we have more than 20 unique "locations", they're probably room names, not zones
-  // In that case, don't show any - zones should be discovered properly
-  if (locations.length > 20) {
-    console.log('⚠️ Too many locations - need to discover zones properly')
-    return []
-  }
-  
+  const locations = [...new Set(equipmentList.value.map(e => e?.location || e?.zone).filter(Boolean))]
   return locations.sort()
 })
 
-// Get equipment IDs with alarms
-const equipmentWithAlarms = computed(() => {
-  return new Set(alarmStore.activeAlarms.map(alarm => alarm.equipmentId))
-})
+// Simple filter state (without complex composable)
+const selectedType = ref(null)
+const selectedLocation = ref(null)
+const selectedAlarmFilter = ref(null)
+const selectedCommunicationStatus = ref(null)
 
-// Get equipment by alarm priority
-const getEquipmentByAlarmPriority = (priority) => {
-  const alarms = alarmStore.alarmsByPriority(priority).filter(a => a.active)
-  return new Set(alarms.map(a => a.equipmentId))
-}
+// Computed to check if any filters are active
+const hasActiveFilters = computed(() => !!(selectedType.value || selectedLocation.value || selectedAlarmFilter.value))
 
-// Filter equipment by type, location, alarm status, communication status, and search
+// Simple filtered equipment (basic filtering only)
 const filteredEquipment = computed(() => {
-  let filtered = equipmentList.value
+  let filtered = equipmentList.value || []
 
-  // Filter by search query (fuzzy matching)
-  if (searchQuery.value.trim()) {
-    const query = searchQuery.value.toLowerCase().replace(/\s+/g, '') // Remove spaces
-    filtered = filtered.filter(e => {
-      // Remove spaces from equipment fields for comparison (with null safety)
-      const name = (e.name || '').toLowerCase().replace(/\s+/g, '')
-      const type = (e.type || '').toLowerCase().replace(/\s+/g, '')
-      const location = (e.location || '').toLowerCase().replace(/\s+/g, '')
-      const zone = (e.zone || '').toLowerCase().replace(/\s+/g, '')
-      const id = (e.id || '').toLowerCase().replace(/\s+/g, '')
-      
-      return name.includes(query) ||
-             type.includes(query) ||
-             location.includes(query) ||
-             zone.includes(query) ||
-             id.includes(query)
-    })
-  }
-
-  // Filter by type
+  // Basic type filter
   if (selectedType.value) {
-    filtered = filtered.filter(e => e.type === selectedType.value)
+    filtered = filtered.filter(e => e?.type === selectedType.value)
   }
 
-  // Filter by zone (or location as fallback)
+  // Basic location filter
   if (selectedLocation.value) {
-    filtered = filtered.filter(e => 
-      e.zone === selectedLocation.value || e.location === selectedLocation.value
+    filtered = filtered.filter(e => (e?.location || e?.zone) === selectedLocation.value)
+  }
+
+  // Basic search
+  if (searchQuery.value.trim()) {
+    const query = searchQuery.value.toLowerCase()
+    filtered = filtered.filter(e =>
+      (e?.name || '').toLowerCase().includes(query) ||
+      (e?.type || '').toLowerCase().includes(query) ||
+      (e?.location || '').toLowerCase().includes(query)
     )
   }
-
-  // Filter by alarm
-  if (selectedAlarmFilter.value && selectedAlarmFilter.value !== 'all') {
-    if (selectedAlarmFilter.value === 'with-alarms') {
-      filtered = filtered.filter(e => equipmentWithAlarms.value.has(e.id))
-    } else if (selectedAlarmFilter.value === 'warning') {
-      // Show equipment with warning status (no critical/high/medium alarms)
-      filtered = filtered.filter(e => {
-        const hasAlarm = equipmentWithAlarms.value.has(e.id)
-        if (hasAlarm) {
-          const alarms = alarmStore.activeAlarms.filter(a => a.equipmentId === e.id)
-          const priorities = alarms.map(a => a.priority)
-          return !priorities.includes('critical') && 
-                 !priorities.includes('high') && 
-                 !priorities.includes('medium')
-        }
-        return e.status === 'warning'
-      })
-    } else {
-      // Filter by specific alarm priority
-      const priorityEquipment = getEquipmentByAlarmPriority(selectedAlarmFilter.value)
-      filtered = filtered.filter(e => priorityEquipment.has(e.id))
-    }
-  }
-
-  // Filter by communication status
-  if (selectedStatusFilter.value && selectedStatusFilter.value !== 'all') {
-    // For now, all equipment is online (mock data)
-    // In real implementation, check actual status
-    if (selectedStatusFilter.value === 'online') {
-      filtered = filtered.filter(e => e.status !== 'offline')
-    }
-  }
-
-  // Sort: by type first, then alphanumerically by name
-  filtered = [...filtered].sort((a, b) => {
-    // First sort by type
-    const typeCompare = (a.type || '').localeCompare(b.type || '')
-    if (typeCompare !== 0) return typeCompare
-    
-    // Then sort alphanumerically by name
-    // Handle numeric suffixes properly (HP1, HP2, HP10 should sort correctly)
-    const aName = a.name || ''
-    const bName = b.name || ''
-    
-    // Extract numeric parts for natural sorting
-    const aMatch = aName.match(/^(.+?)(\d+)$/)
-    const bMatch = bName.match(/^(.+?)(\d+)$/)
-    
-    if (aMatch && bMatch && aMatch[1] === bMatch[1]) {
-      // Same prefix, sort by number
-      return parseInt(aMatch[2]) - parseInt(bMatch[2])
-    }
-    
-    // Default string comparison
-    return aName.localeCompare(bName)
-  })
 
   return filtered
 })
 
-// Get count for specific type (considering other active filters)
-const getTypeCount = (type) => {
-  let filtered = equipmentList.value
-  
-  // Apply zone/location filter if active
-  if (selectedLocation.value) {
-    filtered = filtered.filter(e => e.zone === selectedLocation.value || e.location === selectedLocation.value)
-  }
-  
-  // Apply alarm filter if active
-  if (selectedAlarmFilter.value && selectedAlarmFilter.value !== 'all') {
-    if (selectedAlarmFilter.value === 'with-alarms') {
-      filtered = filtered.filter(e => equipmentWithAlarms.value.has(e.id))
-    } else if (selectedAlarmFilter.value === 'warning') {
-      filtered = filtered.filter(e => {
-        const hasAlarm = equipmentWithAlarms.value.has(e.id)
-        if (hasAlarm) {
-          const alarms = alarmStore.activeAlarms.filter(a => a.equipmentId === e.id)
-          const priorities = alarms.map(a => a.priority)
-          return !priorities.includes('critical') && 
-                 !priorities.includes('high') && 
-                 !priorities.includes('medium')
-        }
-        return e.status === 'warning'
-      })
-    } else {
-      const priorityEquipment = getEquipmentByAlarmPriority(selectedAlarmFilter.value)
-      filtered = filtered.filter(e => priorityEquipment.has(e.id))
-    }
-  }
-  
-  // Now count by type
-  return filtered.filter(e => e.type === type).length
-}
-
-// Get count for specific location (considering other active filters)
-const getLocationCount = (location) => {
-  let filtered = equipmentList.value
-  
-  // Apply type filter if active
-  if (selectedType.value) {
-    filtered = filtered.filter(e => e.type === selectedType.value)
-  }
-  
-  // Apply alarm filter if active
-  if (selectedAlarmFilter.value && selectedAlarmFilter.value !== 'all') {
-    if (selectedAlarmFilter.value === 'with-alarms') {
-      filtered = filtered.filter(e => equipmentWithAlarms.value.has(e.id))
-    } else if (selectedAlarmFilter.value === 'warning') {
-      filtered = filtered.filter(e => {
-        const hasAlarm = equipmentWithAlarms.value.has(e.id)
-        if (hasAlarm) {
-          const alarms = alarmStore.activeAlarms.filter(a => a.equipmentId === e.id)
-          const priorities = alarms.map(a => a.priority)
-          return !priorities.includes('critical') && 
-                 !priorities.includes('high') && 
-                 !priorities.includes('medium')
-        }
-        return e.status === 'warning'
-      })
-    } else {
-      const priorityEquipment = getEquipmentByAlarmPriority(selectedAlarmFilter.value)
-      filtered = filtered.filter(e => priorityEquipment.has(e.id))
-    }
-  }
-  
-  // Now count by location (zone or location)
-  return filtered.filter(e => e.zone === location || e.location === location).length
-}
-
-// Get count for alarm filter (considering other active filters)
-const getAlarmCount = (filter) => {
-  let filtered = equipmentList.value
-  
-  // Apply type filter if active
-  if (selectedType.value) {
-    filtered = filtered.filter(e => e.type === selectedType.value)
-  }
-  
-  // Apply zone/location filter if active
-  if (selectedLocation.value) {
-    filtered = filtered.filter(e => e.zone === selectedLocation.value || e.location === selectedLocation.value)
-  }
-
-  // Now count by alarm status
-  if (filter === 'with-alarms') {
-    return filtered.filter(e => equipmentWithAlarms.value.has(e.id)).length
-  }
-  if (filter === 'warning') {
-    return filtered.filter(e => {
-      const hasAlarm = equipmentWithAlarms.value.has(e.id)
-      if (hasAlarm) {
-        const alarms = alarmStore.activeAlarms.filter(a => a.equipmentId === e.id)
-        const priorities = alarms.map(a => a.priority)
-        return !priorities.includes('critical') && 
-               !priorities.includes('high') && 
-               !priorities.includes('medium')
-      }
-      return e.status === 'warning'
-    }).length
-  }
-  const priorityEquipment = getEquipmentByAlarmPriority(filter)
-  return filtered.filter(e => priorityEquipment.has(e.id)).length
-}
-
-// Get count for status filter
-const getStatusCount = (status) => {
-  if (status === 'online') {
-    return equipmentList.value.filter(e => e.status !== 'offline').length
-  }
-  // Extend for offline, stale when real data available
-  return 0
-}
-
-// Clear all filters
-const clearFilters = () => {
-  searchQuery.value = ''
-  selectedType.value = null
-  selectedLocation.value = null
-  selectedAlarmFilter.value = null
-  selectedStatusFilter.value = null
-}
-
-// Check if any filters are active
-const hasActiveFilters = computed(() => {
-  return searchQuery.value.trim() ||
-         selectedType.value || 
-         selectedLocation.value || 
-         selectedAlarmFilter.value ||
-         selectedStatusFilter.value
-})
-
-// Toggle filter visibility
+// Methods
 const toggleFilter = () => {
   showFilter.value = !showFilter.value
 }
 
-// Refresh equipment data
+const clearFilters = () => {
+  selectedType.value = null
+  selectedLocation.value = null
+  selectedAlarmFilter.value = null
+  selectedCommunicationStatus.value = null
+  searchQuery.value = ''
+}
+
 const refreshEquipment = async () => {
   loading.value = true
   try {
@@ -573,18 +169,12 @@ const refreshEquipment = async () => {
   }
 }
 
-// Force refresh - clear cache and reload
 const forceRefresh = async () => {
   loading.value = true
   try {
-    const adapter = deviceStore.getAdapter()
-    if (adapter && adapter.clearCache) {
-      adapter.clearCache()
-    } else {
-      // Fallback: clear localStorage directly
-      localStorage.removeItem('niagara-bql-cache')
-      localStorage.removeItem('niagara-history-cache')
-    }
+    // Clear local cache
+    localStorage.removeItem('niagara-bql-cache')
+    localStorage.removeItem('niagara-history-cache')
     // Reload the page to get fresh data
     window.location.reload()
   } catch (error) {
@@ -593,80 +183,39 @@ const forceRefresh = async () => {
   }
 }
 
-// Handle point click from card
 const handlePointClick = (point) => {
   emit('point-clicked', point)
 }
 
-// Expose filter methods for parent components
-const applyAlarmFilter = (filterType) => {
-  selectedAlarmFilter.value = filterType
-  showFilter.value = true
-  
-  // Scroll to equipment grid
-  setTimeout(() => {
-    const gridElement = document.querySelector('.equipment-grid')
-    if (gridElement) {
-      gridElement.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }
-  }, 100)
+const handleEquipmentClick = (equipment) => {
+  // Navigate to equipment detail or select it
+  deviceStore.selectDevice(equipment)
 }
 
-const applyLocationFilter = (location) => {
-  selectedLocation.value = location
-  showFilter.value = true
-}
-
-const applyTypeFilter = (type) => {
-  selectedType.value = type
-  showFilter.value = true
-}
-
-const scrollToGrid = () => {
-  setTimeout(() => {
-    const gridElement = document.querySelector('.equipment-grid')
-    if (gridElement) {
-      gridElement.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }
-  }, 100)
-}
-
-// Expose methods to parent
-defineExpose({
-  applyAlarmFilter,
-  applyLocationFilter,
-  applyTypeFilter,
-  scrollToGrid,
-  clearFilters
-})
-
-// Load equipment on mount
-onMounted(async () => {
-  if (equipmentList.value.length === 0) {
-    await refreshEquipment()
+// Lifecycle
+onMounted(() => {
+  // Focus search input if it exists
+  if (searchInputRef.value) {
+    searchInputRef.value.focus()
   }
-  
-  // Add keyboard shortcut listener
-  window.addEventListener('keydown', handleKeyboardShortcut)
 })
 
 onUnmounted(() => {
   // Remove keyboard shortcut listener
-  window.removeEventListener('keydown', handleKeyboardShortcut)
+  document.removeEventListener('keydown', handleKeydown)
 })
 
 // Keyboard shortcuts
-const handleKeyboardShortcut = (event) => {
-  // / key - Focus search
-  if (event.key === '/' && !event.metaKey && !event.ctrlKey) {
-    const searchInput = document.querySelector('.search-input')
-    if (searchInput && document.activeElement !== searchInput) {
-      event.preventDefault()
-      searchInput.focus()
+const handleKeydown = (event) => {
+  // Ctrl/Cmd + F to focus search
+  if ((event.ctrlKey || event.metaKey) && event.key === 'f') {
+    event.preventDefault()
+    if (searchInputRef.value) {
+      searchInputRef.value.focus()
     }
   }
-  
-  // Escape key - Clear search or close filters
+
+  // Escape to clear search or close filters
   if (event.key === 'Escape') {
     if (searchQuery.value) {
       searchQuery.value = ''
@@ -675,6 +224,20 @@ const handleKeyboardShortcut = (event) => {
     }
   }
 }
+
+// Add global keyboard listeners
+onMounted(() => {
+  document.addEventListener('keydown', handleKeydown)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('keydown', handleKeydown)
+})
+
+// Expose methods for parent components (e.g., alarm click -> clear filters -> scroll to equipment)
+defineExpose({
+  clearFilters
+})
 </script>
 
 <style scoped>
@@ -920,14 +483,6 @@ const handleKeyboardShortcut = (event) => {
 .clear-filters-btn:hover {
   background-color: var(--color-bg-hover);
   color: var(--color-text-primary);
-}
-
-/* Equipment Grid */
-.equipment-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: var(--spacing-lg);
-  padding: var(--spacing-sm) 0;
 }
 
 /* Loading State */

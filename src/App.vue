@@ -2,7 +2,7 @@
   <div class="app-container">
     <!-- Loading Overlay -->
     <Transition name="fade">
-      <div v-if="isLoading" class="loading-overlay">
+      <div v-if="isLoading" class="loading-overlay" style="background: rgba(0,0,0,0.9); z-index: 9999;">
         <div class="loading-content">
           <div class="loading-spinner"></div>
           <h2>{{ loadingTitle }}</h2>
@@ -74,8 +74,8 @@
     <main class="app-main">
       <!-- Show BuildingView if active, otherwise show welcome -->
       <BuildingView v-if="showBuildingView" @back="showBuildingView = false" />
-      
-      <template v-else>
+
+      <div>
         <!-- Building Stats -->
         <div v-if="stats" class="stats-grid">
           <div class="stat-card card">
@@ -113,7 +113,7 @@
               <p style="color: #a0a0a0; font-size: 12px; margin-top: 10px;">Check browser console (F12) for details</p>
             </div>
           </div>
-          
+
           <!-- Quick Actions -->
           <div v-if="dataLoaded" class="actions">
             <button @click="showBuildingView = true" class="primary">
@@ -136,7 +136,7 @@
             <div class="test-detail">{{ result.detail }}</div>
           </div>
         </div>
-      </template>
+      </div>
     </main>
   </div>
 </template>
@@ -435,8 +435,11 @@ onMounted(async () => {
     console.log('✓ App initialized successfully')
     
     // Hide loading overlay with slight delay for smooth transition
+    console.log('⏰ Scheduling loading overlay hide in 300ms...')
     setTimeout(() => {
+      console.log('⏰ Hiding loading overlay now')
       isLoading.value = false
+      console.log('⏰ isLoading set to:', isLoading.value)
     }, 300)
   } catch (error) {
     console.error('❌ Failed to initialize:', error)
@@ -490,14 +493,16 @@ const restoreLayout = async () => {
 
 // Switch dataset (local dev only)
 const switchDataset = async () => {
+  console.log('🔄 switchDataset called, currentDataset:', currentDataset.value)
   if (!adapter || isNiagaraEnv.value) return
-  
+
   isLoading.value = true
   loadingTitle.value = 'Switching Dataset'
   loadingMessage.value = 'Loading new dataset...'
   loadingProgress.value = 30
-  
+
   try {
+    console.log('🔄 Calling adapter.switchDataset with:', currentDataset.value)
     await adapter.switchDataset(currentDataset.value)
     
     loadingProgress.value = 60

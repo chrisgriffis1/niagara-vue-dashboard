@@ -387,7 +387,10 @@ const loadHistoricalData = async () => {
     }
     await deviceStore.initializeAdapter()
     for (const point of selectedPoints.value) {
-      const data = await currentAdapter.getHistoricalData(point.id, { start: timeRange.value.start, end: timeRange.value.end })
+      const data = await currentAdapter.getHistoricalData(point.id, {
+        startDate: timeRange.value.start,
+        endDate: timeRange.value.end
+      })
       historicalData.value[point.id] = data
     }
   } catch (error) {

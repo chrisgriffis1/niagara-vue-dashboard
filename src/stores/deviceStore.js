@@ -65,20 +65,17 @@ export const useDeviceStore = defineStore('device', {
         // Fallback: create MockDataAdapter if adapter not set by App.vue
         console.warn('⚠️ Adapter not set by App.vue, creating MockDataAdapter fallback')
         this.adapter = new MockDataAdapter()
-        // Load REAL Niagara data by default
-        console.log('🔄 Loading Real Niagara Data...')
-        await this.adapter.switchDataset('real')
-        console.log('✅ Real data loaded! 83 equipment, 38k+ points')
+        // DON'T load data here - let loadDevices() handle it
         return
       }
-      
+
       // Adapter already set by App.vue - check if it's already initialized
       // NiagaraBQLAdapter sets initialized=true after discovery, MockDataAdapter uses initialized flag
       if (this.adapter.initialized === true) {
         // Already initialized, nothing to do
         return
       }
-      
+
       // Only initialize if not already initialized and has initialize method
       if (typeof this.adapter.initialize === 'function' && this.adapter.initialized !== true) {
         // Check if it's a NiagaraBQLAdapter (already initialized by App.vue)
@@ -88,7 +85,7 @@ export const useDeviceStore = defineStore('device', {
           this.adapter.initialized = true
           return
         }
-        
+
         // Otherwise, ensure it's initialized
         console.log('🔄 Ensuring adapter is initialized...')
         await this.adapter.initialize()
@@ -99,8 +96,18 @@ export const useDeviceStore = defineStore('device', {
      * Set the adapter (called by App.vue after environment detection)
      */
     setAdapter(adapter) {
+      const hadDevices = this.devices.length > 0
+      // Clear existing data when adapter changes to ensure fresh load
       this.adapter = adapter
+      this.devices = []
+      this.buildingStats = null
       console.log('✓ DeviceStore adapter set:', adapter.constructor.name)
+
+      // If we had devices loaded with a fallback adapter, reload with the real adapter
+      if (hadDevices) {
+        console.log('🔄 Reloading devices with new adapter...')
+        this.loadDevices()
+      }
     },
 
     /**
@@ -112,6 +119,7 @@ export const useDeviceStore = defineStore('device', {
 
       try {
         await this.initializeAdapter()
+        // Always reload devices in case adapter changed
         this.devices = await this.adapter.discoverDevices()
         this.buildingStats = await this.adapter.getBuildingStats()
       } catch (err) {

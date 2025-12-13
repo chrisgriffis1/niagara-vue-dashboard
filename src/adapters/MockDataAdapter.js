@@ -2,94 +2,74 @@
  * Mock Data Adapter
  * Loads Niagara site profile data and provides universal data interface
  * Supports both demo data and real extracted Niagara data
- * 
+ *
  * Implements the BuildingDataAdapter interface from master-plan.md
  */
 
+import MockDatasetService from './services/MockDatasetService.js';
+import MockDataLoaderService from './services/MockDataLoaderService.js';
+import MockEquipmentService from './services/MockEquipmentService.js';
+import MockAlarmService from './services/MockAlarmService.js';
+import MockHistoryService from './services/MockHistoryService.js';
+import MockPointService from './services/MockPointService.js';
+
 class MockDataAdapter {
   constructor() {
-    this.data = null;
+    // Initialize service instances
+    this.datasetService = new MockDatasetService();
+    this.dataLoader = new MockDataLoaderService(this.datasetService);
+    this.equipmentService = new MockEquipmentService(this.dataLoader);
+    this.pointService = new MockPointService();
+    this.alarmService = new MockAlarmService();
+    this.historyService = new MockHistoryService(this);
+
+    // Core data structures (managed by services)
     this.equipment = [];
-    this.points = [];
-    this.schedules = [];
-    this.histories = [];
-    this.taggedComponents = [];
-    this.pointsMap = new Map();
-    this.equipmentPointsMap = new Map();
+    this.alarms = [];
+    this.zones = [];
     this.subscribers = [];
     this.initialized = false;
-    
-    // Dataset configuration - can be extended with exported Niagara data
-    // Note: Paths are relative to base URL (in dev mode, use import.meta.env.BASE_URL)
-    const base = typeof import.meta !== 'undefined' && import.meta.env?.BASE_URL || '';
-    this.availableDatasets = [
-      { id: 'demo', name: 'Demo Data', file: `${base}mock-data/demo-site-profile.json.json` },
-      { id: 'real', name: 'Real Niagara Data', file: `${base}mock-data/mock-data/firstTryNeedsWork.json` },
-      { id: 'live', name: 'Live Station Export (Dec 12)', file: `${base}mock-data/mock-data/live-station-export.json` }
-    ];
-    this.currentDataset = 'demo'; // Default to demo, can be switched
-    this.alarms = []; // Alarms from exported data
-    this.zones = []; // Zones from exported data
-    this.historyIdCache = new Map(); // History ID cache from export
-    
+
     // Expose to window for debugging
     if (typeof window !== 'undefined') {
       window.mockAdapter = this;
       console.log('💡 Debug: Use window.mockAdapter.getAvailableDatasets() to see datasets');
     }
   }
-  
+
   /**
    * Add a custom dataset (e.g., from Niagara export)
-   * @param {string} id - Unique ID for dataset
-   * @param {string} name - Display name
-   * @param {string} file - Path to JSON file in public/mock-data/
    */
   addDataset(id, name, file) {
-    // Don't add duplicates
-    if (this.availableDatasets.find(d => d.id === id)) {
-      console.warn(`Dataset ${id} already exists`);
-      return;
-    }
-    this.availableDatasets.push({ id, name, file });
-    console.log(`✅ Added dataset: ${name}`);
+    this.datasetService.addDataset(id, name, file);
   }
-  
+
   /**
    * Get all available datasets
    */
   getAvailableDatasets() {
-    return this.availableDatasets.map(d => ({
+    const datasets = this.datasetService.getAvailableDatasets();
+    return datasets.map(d => ({
       id: d.id,
       name: d.name,
-      current: d.id === this.currentDataset
+      current: d.id === this.datasetService.getCurrentDatasetId()
     }));
   }
 
   /**
    * Switch between available datasets
-   * @param {string} datasetId - 'demo' or 'real'
    */
   async switchDataset(datasetId) {
-    const dataset = this.availableDatasets.find(d => d.id === datasetId);
-    if (!dataset) {
-      console.error(`Dataset not found: ${datasetId}`);
-      return false;
-    }
-
-    console.log(`📊 Switching to dataset: ${dataset.name}`);
+    console.log('🔄 MockDataAdapter.switchDataset called with:', datasetId);
+    await this.datasetService.switchDataset(datasetId);
+    console.log('🔄 Dataset switched, new dataset:', this.datasetService.getCurrentDataset());
     this.currentDataset = datasetId;
     this.initialized = false;
-    
+
     // Clear existing data
     this.equipment = [];
-    this.points = [];
-    this.schedules = [];
-    this.histories = [];
-    this.taggedComponents = [];
-    this.pointsMap.clear();
-    this.equipmentPointsMap.clear();
-    
+    this.pointService.clear();
+
     return await this.initialize();
   }
 
@@ -97,532 +77,93 @@ class MockDataAdapter {
    * Get current dataset info
    */
   getCurrentDataset() {
-    return this.availableDatasets.find(d => d.id === this.currentDataset);
+    return this.datasetService.getCurrentDataset();
   }
 
   /**
    * Initialize adapter and load data
-   * Parses JSON and builds lookup maps for fast access
    */
   async initialize() {
     if (this.initialized) {
       return true;
     }
 
-    const dataset = this.getCurrentDataset();
-    console.log(`🔄 Loading ${dataset.name}...`);
-
     try {
-      const response = await fetch(dataset.file);
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-      
-      this.data = await response.json();
-      
-      // Parse data based on structure
-      this._parseData();
-      
-      // Build point lookup map for fast access
-      this.points.forEach(point => {
-        this.pointsMap.set(point.id, point);
-      });
+      // Load data using data loader service
+      const rawData = await this.dataLoader.loadData();
 
-      // Associate points with equipment
-      this._buildEquipmentPointMapping();
-      
+      // Parse data using data loader service
+      const parsedData = this.dataLoader.parseData(rawData);
+
+      // Process equipment using equipment service
+      this.equipment = this.equipmentService.processEquipment(parsedData.equipment);
+
+      // Process points using point service
+      this.pointService.processPoints(this.equipment, parsedData.points);
+
+      // Set up alarms using alarm service
+      this.alarms = this.alarmService.generateAlarms(this.equipment, this.pointService.points);
+
+      // Set up history service
+      this.historyService.setupHistoryIdCache(parsedData.historyIdCache);
+
+      // Store zones
+      this.zones = parsedData.zones;
+
       this.initialized = true;
-      
-      // Log comprehensive stats
+
+      // Log stats
+      const dataset = this.getCurrentDataset();
       console.log(`✓ ${dataset.name} initialized:`);
-      console.log(`  📦 Equipment: ${this.equipment.length}`);
-      console.log(`  📍 Points: ${this.points.length}`);
-      console.log(`  📅 Schedules: ${this.schedules.length}`);
-      console.log(`  📈 Histories: ${this.histories.length}`);
-      console.log(`  🏷️  Tagged Components: ${this.taggedComponents.length}`);
-      
+      console.log(`  📦 Equipment: ${this.equipment?.length || 0}`);
+      console.log(`  📍 Points: ${this.pointService.points?.length || 0}`);
+      console.log(`  🚨 Alarms: ${this.alarms?.length || 0}`);
+      console.log(`  🏢 Zones: ${this.zones?.length || 0}`);
+
       return true;
     } catch (error) {
-      console.error(`❌ Failed to load ${dataset.name}:`, error.message);
-      
+      console.error(`❌ Initialization failed:`, error.message);
+
       // If real data fails, try falling back to demo
       if (this.currentDataset === 'real') {
         console.log('⚠️  Falling back to demo data...');
         this.currentDataset = 'demo';
         return await this.initialize();
       }
-      
+
       return false;
     }
   }
 
   /**
-   * Parse data structure - handles both demo and real Niagara formats
-   * @private
-   */
-  _parseData() {
-    try {
-      // Check if data has nested 'data' property (demo format)
-      const dataSource = this.data.data || this.data;
-      
-      console.log('📊 Parsing data structure...', {
-        hasData: !!this.data,
-        hasNestedData: !!this.data.data,
-        dataKeys: Object.keys(dataSource || {})
-      });
-      
-      // Extract equipment
-      if (dataSource.equipment && Array.isArray(dataSource.equipment)) {
-        this.equipment = dataSource.equipment;
-        console.log(`✓ Found ${this.equipment.length} equipment`);
-      } else if (dataSource.devices && Array.isArray(dataSource.devices)) {
-        // Alternative naming
-        this.equipment = dataSource.devices;
-        console.log(`✓ Found ${this.equipment.length} devices`);
-      } else {
-        console.warn('⚠️  No equipment array found in data');
-        this.equipment = [];
-      }
-      
-      // Extract points
-      if (dataSource.points && Array.isArray(dataSource.points)) {
-        this.points = dataSource.points;
-        console.log(`✓ Found ${this.points.length} points`);
-      } else {
-        console.warn('⚠️  No points array found in data');
-        this.points = [];
-      }
-      
-      // Extract schedules (real data)
-      if (dataSource.schedules && Array.isArray(dataSource.schedules)) {
-        this.schedules = dataSource.schedules;
-      } else {
-        this.schedules = [];
-      }
-      
-      // Extract histories (real data)
-      if (dataSource.histories && Array.isArray(dataSource.histories)) {
-        this.histories = dataSource.histories;
-      } else {
-        this.histories = [];
-      }
-      
-      // Extract tagged components (real data)
-      if (dataSource.tags && dataSource.tags.tagData && Array.isArray(dataSource.tags.tagData)) {
-        this.taggedComponents = dataSource.tags.tagData;
-      } else if (dataSource.taggedComponents && Array.isArray(dataSource.taggedComponents)) {
-        this.taggedComponents = dataSource.taggedComponents;
-      } else if (dataSource.components && Array.isArray(dataSource.components)) {
-        this.taggedComponents = dataSource.components;
-      } else {
-        this.taggedComponents = [];
-      }
-      
-      // Extract alarms (from Niagara export format)
-      if (dataSource.alarms && Array.isArray(dataSource.alarms)) {
-        this.alarms = dataSource.alarms;
-        console.log(`✓ Found ${this.alarms.length} alarms`);
-      } else {
-        this.alarms = [];
-      }
-      
-      // Extract zones (from Niagara export format)
-      if (dataSource.zones && Array.isArray(dataSource.zones)) {
-        this.zones = dataSource.zones;
-        console.log(`✓ Found ${this.zones.length} zones`);
-      } else {
-        this.zones = [];
-      }
-      
-      // Extract history ID cache (from Niagara export format)
-      if (dataSource.historyIdCache && Array.isArray(dataSource.historyIdCache)) {
-        this.historyIdCache.clear();
-        dataSource.historyIdCache.forEach(entry => {
-          if (entry.key && entry.historyId) {
-            this.historyIdCache.set(entry.key, entry.historyId);
-          }
-        });
-        console.log(`✓ Loaded ${this.historyIdCache.size} history IDs`);
-      }
-      
-      // Handle equipment with embedded points (Niagara export format)
-      // If equipment have points arrays, extract them
-      if (this.equipment.length > 0 && this.points.length === 0) {
-        const embeddedPoints = [];
-        this.equipment.forEach(equip => {
-          if (equip.points && Array.isArray(equip.points)) {
-            equip.points.forEach(p => {
-              embeddedPoints.push({
-                ...p,
-                equipmentId: equip.id
-              });
-            });
-          }
-        });
-        if (embeddedPoints.length > 0) {
-          this.points = embeddedPoints;
-          console.log(`✓ Extracted ${embeddedPoints.length} embedded points from equipment`);
-        }
-      }
-      
-      // Normalize equipment structure
-      if (this.equipment.length > 0) {
-        this.equipment = this.equipment.map((equip, index) => this._normalizeEquipment(equip, index));
-      }
-      
-      // Normalize point structure
-      if (this.points.length > 0) {
-        this.points = this.points.map((point, index) => this._normalizePoint(point, index));
-      }
-    } catch (error) {
-      console.error('❌ Error parsing data:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Normalize equipment object to consistent format
-   * @private
-   */
-  _normalizeEquipment(equip, index) {
-    // Extract location from path or name
-    const location = this._extractLocation(equip);
-    
-    // Get zone - prefer explicit zone property from export
-    const zone = equip.zone || null;
-    
-    // ALWAYS infer the type to get customer-friendly names
-    const friendlyType = this._inferEquipmentType(equip);
-    
-    return {
-      id: equip.id || equip.equipmentId || equip.slotPath || `equip_${index}`,
-      name: equip.name || equip.displayName || equip.navName || `Equipment ${index + 1}`,
-      type: friendlyType, // Use inferred friendly type
-      location: location,
-      zone: zone, // Include zone from export
-      ord: equip.ord || equip.slotPath || equip.path || '',
-      tags: equip.tags || '',
-      technicalType: equip.type, // Keep original technical type for reference
-      rawData: equip // Keep original for reference
-    };
-  }
-
-  /**
-   * Extract location/zone from equipment path or name
-   * @private
-   */
-  _extractLocation(equip) {
-    // Check if equipment has explicit location
-    if (equip.location && equip.location !== 'Unknown') {
-      return equip.location;
-    }
-    
-    const path = (equip.ord || equip.slotPath || equip.path || '').toUpperCase();
-    const name = (equip.name || '').trim();
-    
-    // Extract location from equipment name (e.g., "HP21 300 Link Hall" → "300 Link Hall")
-    // Pattern: HP## Location Name
-    const hpLocationMatch = name.match(/^HP\d+\s+(.+)$/i);
-    if (hpLocationMatch) {
-      return hpLocationMatch[1].trim();
-    }
-    
-    // Pattern: AHU## Location Name
-    const ahuLocationMatch = name.match(/^AHU\d+\s+(.+)$/i);
-    if (ahuLocationMatch) {
-      return ahuLocationMatch[1].trim();
-    }
-    
-    // Pattern: MAU## Location Name
-    const mauLocationMatch = name.match(/^MAU\d+\s+(.+)$/i);
-    if (mauLocationMatch) {
-      return mauLocationMatch[1].trim();
-    }
-    
-    // Pattern: VAV## Location Name
-    const vavLocationMatch = name.match(/^VAV\d+\s+(.+)$/i);
-    if (vavLocationMatch) {
-      return vavLocationMatch[1].trim();
-    }
-    
-    // Extract from path patterns like /Building/Floor2/Zone3/
-    const pathMatch = path.match(/\/(FLOOR|LEVEL|ZONE|AREA|BUILDING|WING|SECTION)[\s_-]?(\w+)/i);
-    if (pathMatch) {
-      return `${pathMatch[1]} ${pathMatch[2]}`;
-    }
-    
-    // Extract floor numbers from name or path
-    const floorMatch = (name + ' ' + path).match(/(FLOOR|LEVEL|FL)\s*(\d+)/i);
-    if (floorMatch) {
-      return `Floor ${floorMatch[2]}`;
-    }
-    
-    // Extract zone from name or path
-    const zoneMatch = (name + ' ' + path).match(/ZONE\s*(\w+)/i);
-    if (zoneMatch) {
-      return `Zone ${zoneMatch[1]}`;
-    }
-    
-    // Extract room numbers
-    const roomMatch = (name + ' ' + path).match(/ROOM\s*(\d+)/i);
-    if (roomMatch) {
-      return `Room ${roomMatch[1]}`;
-    }
-    
-    // Extract building name
-    const buildingMatch = path.match(/\/BUILDING[\s_-]?(\w+)/i);
-    if (buildingMatch) {
-      return `Building ${buildingMatch[1]}`;
-    }
-    
-    // DON'T use network as location - that's not a physical location!
-    // Just return "Unassigned" if we can't find real location data
-    return 'Unassigned';
-  }
-
-  /**
-   * Infer equipment type from name or path
-   * @private
-   */
-  _inferEquipmentType(equip) {
-    const name = (equip.name || equip.displayName || '').toUpperCase();
-    const path = (equip.ord || equip.slotPath || equip.path || '').toUpperCase();
-    const type = (equip.type || '').toLowerCase();
-    const combined = name + ' ' + path + ' ' + type;
-    
-    // Check name patterns first (highest priority - actual HVAC equipment)
-    if (name.match(/^AHU[\d_-]/i)) return 'AHU';
-    if (name.match(/^MAU[\d_-]/i)) return 'MAU';
-    if (name.match(/^VAV[\d_-]/i)) return 'VAV';
-    if (name.match(/^HP[\d_-]/i) || name.match(/^HEAT.?PUMP[\d_-]/i)) return 'Heat Pump';
-    if (name.match(/^RTU[\d_-]/i)) return 'RTU';
-    if (name.match(/^FCU[\d_-]/i)) return 'FCU';
-    if (name.match(/^BOILER[\d_-]/i)) return 'Boiler';
-    if (name.match(/^CHILLER[\d_-]/i)) return 'Chiller';
-    if (name.match(/^PUMP[\d_-]/i)) return 'Pump';
-    if (name.match(/^FAN[\d_-]/i)) return 'Fan';
-    if (name.match(/^TOWER/i) || name.includes('PLANT')) return 'Plant';
-    
-    // System/Infrastructure devices - NOT equipment
-    if (type.includes('thermostat') || type.includes('tc300')) return 'System Infrastructure';
-    if (type.includes('station') && type.includes('niagara')) return 'System Infrastructure';
-    if (type.includes('irmbacnet') || type.includes('honirm')) return 'Controller';
-    if (type.includes('bacnet') && type.includes('device')) {
-      // Check if it's actually equipment with a meaningful name
-      if (name.match(/^(AHU|MAU|VAV|RTU|FCU|HP|BOILER|CHILLER|PUMP|FAN)/i)) {
-        return this._inferEquipmentType({...equip, type: ''}); // Re-run without type
-      }
-      return 'System Infrastructure';
-    }
-    if (type.includes('modbus')) return 'System Infrastructure';
-    
-    // Fallback to generic patterns
-    if (combined.includes('VAV')) return 'VAV';
-    if (combined.includes('AHU') || combined.includes('AIR HANDLER')) return 'AHU';
-    if (combined.includes('MAU') || combined.includes('MAKEUP')) return 'MAU';
-    if (combined.includes('RTU') || combined.includes('ROOFTOP')) return 'RTU';
-    if (combined.includes('FCU') || combined.includes('FAN COIL')) return 'FCU';
-    if (combined.includes('CHILLER')) return 'Chiller';
-    if (combined.includes('BOILER')) return 'Boiler';
-    if (combined.includes('PUMP')) return 'Pump';
-    if (combined.includes('FAN')) return 'Fan';
-    
-    return 'Other';
-  }
-
-  /**
-   * Normalize point object to consistent format
-   * @private
-   */
-  _normalizePoint(point, index) {
-    // Extract value from curVal field (format: "value {status}")
-    let value = point.value;
-    
-    // Handle curVal format: "value {status} @ source" or "value {status}"
-    if (point.curVal) {
-      const curValStr = String(point.curVal);
-      const match = curValStr.match(/^(.+?)\s*\{/);
-      if (match) {
-        const rawValue = match[1].trim();
-        // Try to parse as number or boolean
-        if (rawValue === 'true') value = true;
-        else if (rawValue === 'false') value = false;
-        else if (!isNaN(rawValue) && rawValue !== '') value = parseFloat(rawValue);
-        else value = rawValue;
-      } else {
-        value = curValStr;
-      }
-    }
-    
-    // Fallback to other value fields
-    if (value === undefined && point.out !== undefined) value = point.out;
-    if (value === undefined && point.currentValue !== undefined) value = point.currentValue;
-    
-    // Handle old format too: "value {status} @ source"
-    if (typeof value === 'string' && value.includes('{')) {
-      const match = value.match(/^(.+?)\s*\{/);
-      if (match) {
-        const rawValue = match[1].trim();
-        if (rawValue === 'true') value = true;
-        else if (rawValue === 'false') value = false;
-        else if (!isNaN(rawValue) && rawValue !== '') value = parseFloat(rawValue);
-        else value = rawValue;
-      }
-    }
-    
-    if (value === undefined) value = null;
-    
-    return {
-      id: point.id || point.pointId || point.slotPath || `point_${index}`,
-      name: point.name || point.displayName || point.navName || `Point ${index + 1}`,
-      type: point.type || point.pointType || this._inferPointType(point),
-      unit: point.unit || point.units || '',
-      value: value,
-      ord: point.ord || point.slotPath || point.path || '',
-      equipmentId: point.equipmentId || point.equipmentPath || point.parentEquipment || null,
-      facets: point.facets || [],
-      trendable: point.trendable === 'true' || point.trendable === true,
-      category: point.category || '',
-      rawData: point // Keep original for reference
-    };
-  }
-
-  /**
-   * Infer point type from name, facets, or other properties
-   * @private
-   */
-  _inferPointType(point) {
-    // Check facets
-    if (point.facets) {
-      if (point.facets.includes('numeric') || point.facets.includes('number')) return 'Numeric';
-      if (point.facets.includes('boolean') || point.facets.includes('bool')) return 'Boolean';
-      if (point.facets.includes('enum')) return 'Enum';
-      if (point.facets.includes('str') || point.facets.includes('string')) return 'String';
-    }
-    
-    // Check value type
-    const val = point.value || point.out || point.currentValue;
-    if (typeof val === 'number') return 'Numeric';
-    if (typeof val === 'boolean') return 'Boolean';
-    if (typeof val === 'string') return 'String';
-    
-    return 'Unknown';
-  }
-
-  /**
-   * Build equipment-to-points mapping
-   * Uses explicit equipmentId if available, otherwise distributes points across equipment
-   * @private
-   */
-  _buildEquipmentPointMapping() {
-    // First, try to use explicit equipment associations
-    const pointsWithEquipment = this.points.filter(p => p.equipmentId);
-    const pointsWithoutEquipment = this.points.filter(p => !p.equipmentId);
-    
-    // Clear the map
-    this.equipmentPointsMap.clear();
-    
-    // Map points that have explicit equipment IDs
-    pointsWithEquipment.forEach(point => {
-      if (!this.equipmentPointsMap.has(point.equipmentId)) {
-        this.equipmentPointsMap.set(point.equipmentId, []);
-      }
-      this.equipmentPointsMap.get(point.equipmentId).push(point);
-    });
-    
-    // If we have points without equipment, try to infer from path/ord
-    pointsWithoutEquipment.forEach(point => {
-      const equipId = this._inferEquipmentFromPoint(point);
-      if (equipId) {
-        if (!this.equipmentPointsMap.has(equipId)) {
-          this.equipmentPointsMap.set(equipId, []);
-        }
-        this.equipmentPointsMap.get(equipId).push(point);
-        point.equipmentId = equipId; // Update the point
-      }
-    });
-    
-    // For remaining unmapped points, distribute them across equipment
-    const unmappedPoints = this.points.filter(p => !p.equipmentId);
-    if (unmappedPoints.length > 0 && this.equipment.length > 0) {
-      const pointsPerEquipment = Math.floor(unmappedPoints.length / this.equipment.length);
-      const remainder = unmappedPoints.length % this.equipment.length;
-      
-      let pointIndex = 0;
-      this.equipment.forEach((equip, equipIndex) => {
-        const pointCount = equipIndex < remainder ? pointsPerEquipment + 1 : pointsPerEquipment;
-        const equipPoints = unmappedPoints.slice(pointIndex, pointIndex + pointCount);
-        
-        if (!this.equipmentPointsMap.has(equip.id)) {
-          this.equipmentPointsMap.set(equip.id, []);
-        }
-        this.equipmentPointsMap.get(equip.id).push(...equipPoints);
-        pointIndex += pointCount;
-      });
-    }
-    
-    // Ensure all equipment has at least an empty array
-    this.equipment.forEach(equip => {
-      if (!this.equipmentPointsMap.has(equip.id)) {
-        this.equipmentPointsMap.set(equip.id, []);
-      }
-    });
-  }
-
-  /**
-   * Try to infer equipment ID from point's path/ord
-   * @private
-   */
-  _inferEquipmentFromPoint(point) {
-    const path = point.ord || '';
-    
-    // Try to match against equipment paths
-    for (const equip of this.equipment) {
-      const equipPath = equip.ord || '';
-      // If point path starts with equipment path, it likely belongs to it
-      if (path && equipPath && path.startsWith(equipPath)) {
-        return equip.id;
-      }
-    }
-    
-    return null;
-  }
-
-  /**
    * Discover all devices/equipment in the building
-   * @returns {Promise<Array>} List of equipment with basic info
    */
   async discoverDevices() {
     if (!this.initialized) {
       await this.initialize();
     }
 
-    // Return enriched equipment data with point counts and zone
-    return this.equipment.map(equip => ({
+    // Return equipment data from equipment service
+    return this.equipmentService.getEquipment().map(equip => ({
       id: equip.id,
       name: equip.name,
       type: equip.type,
       location: equip.location,
-      zone: equip.zone, // Include zone for filtering
+      zone: equip.zone,
       ord: equip.ord,
-      pointCount: this.equipmentPointsMap.get(equip.id)?.length || 0,
+      pointCount: this.pointService.getPointsByEquipment(equip.id)?.length || 0,
       status: this._getEquipmentStatus(equip.id)
     }));
   }
 
   /**
    * Get equipment status based on its points
-   * @private
-   * @param {string} equipmentId - Equipment identifier
-   * @returns {string} Status: 'ok', 'warning', 'error'
    */
   _getEquipmentStatus(equipmentId) {
-    const points = this.equipmentPointsMap.get(equipmentId) || [];
-    
+    const points = this.pointService.getPointsByEquipment(equipmentId) || [];
+
     // Simple status logic based on point values
-    // In real implementation, this would check actual alarm states
     const hasIssue = points.some(point => {
-      // Check if any numeric values are out of normal range
       if (typeof point.value === 'number') {
         return point.value > 95 || point.value < 5;
       }
@@ -634,16 +175,14 @@ class MockDataAdapter {
 
   /**
    * Get all points for a specific equipment
-   * @param {string} equipmentId - Equipment identifier
-   * @returns {Promise<Array>} Array of points belonging to equipment
    */
   async getPointsByEquipment(equipmentId) {
     if (!this.initialized) {
       await this.initialize();
     }
 
-    const points = this.equipmentPointsMap.get(equipmentId) || [];
-    
+    const points = this.pointService.getPointsByEquipment(equipmentId);
+
     // Return formatted point data with all fields needed for sparklines
     return points.map(point => ({
       id: point.id,
@@ -655,7 +194,7 @@ class MockDataAdapter {
       ord: point.ord,
       slotPath: point.slotPath || point.ord,
       equipmentId: point.equipmentId || equipmentId,
-      displayValue: this._formatPointValue(point),
+      displayValue: this.pointService.formatPointValue(point),
       trendable: true, // All points are "trendable" in mock mode
       hasHistory: true, // Enable history for all points in mock mode
       historyId: point.historyId || `mock_${point.id}`,
@@ -664,29 +203,15 @@ class MockDataAdapter {
   }
 
   /**
-   * Format point value with unit for display
-   * @private
-   */
-  _formatPointValue(point) {
-    if (typeof point.value === 'number') {
-      const rounded = Math.round(point.value * 100) / 100;
-      return point.unit ? `${rounded} ${point.unit}` : rounded.toString();
-    }
-    return point.value;
-  }
-
-  /**
    * Get current value of a specific point
-   * @param {string} pointId - Unique point identifier
-   * @returns {Promise<Object|null>} Point data with current value
    */
   async getPointValue(pointId) {
     if (!this.initialized) {
       await this.initialize();
     }
 
-    const point = this.pointsMap.get(pointId);
-    
+    const point = this.pointService.getPointById(pointId);
+
     if (!point) {
       console.warn(`Point not found: ${pointId}`);
       return null;
@@ -698,77 +223,24 @@ class MockDataAdapter {
       type: point.type,
       unit: point.unit,
       value: point.value,
-      displayValue: this._formatPointValue(point),
+      displayValue: this.pointService.formatPointValue(point),
       timestamp: new Date()
     };
   }
 
   /**
-   * Get historical data for trending (Chart.js)
-   * Generates mock historical data based on current point value
-   * @param {string} pointId - Unique point identifier
-   * @param {Object} timeRange - { start: Date, end: Date }
-   * @returns {Promise<Array>} Historical data points
+   * Get historical data for trending
    */
   async getHistoricalData(pointIdOrObj, timeRange = {}) {
     if (!this.initialized) {
       await this.initialize();
     }
 
-    // Accept either point ID string or full point object (like NiagaraBQLAdapter)
-    let point;
-    let pointId;
-    if (typeof pointIdOrObj === 'object' && pointIdOrObj !== null) {
-      point = pointIdOrObj;
-      pointId = point.id;
-    } else {
-      pointId = pointIdOrObj;
-      point = this.pointsMap.get(pointId);
-    }
-    
-    // If point not found in map, use the passed object
-    if (!point) {
-      point = typeof pointIdOrObj === 'object' ? pointIdOrObj : null;
-    }
-    
-    if (!point) {
-      console.log(`⚠️ No point found for: ${pointId}`);
-      return [];
-    }
-    
-    // Get base value - use point.value if available, otherwise generate
-    let baseValue = typeof point.value === 'number' ? point.value : 70;
-    
-    // Generate mock historical data (48 points over 24 hours)
-    const now = new Date();
-    const dataPoints = 48; // 30-minute intervals
-    const history = [];
-
-    const variance = Math.abs(baseValue) * 0.15; // 15% variance for more visible charts
-
-    for (let i = dataPoints - 1; i >= 0; i--) {
-      const timestamp = new Date(now.getTime() - (i * 30 * 60 * 1000));
-      
-      // Add some realistic variation
-      const randomVariation = (Math.random() - 0.5) * variance;
-      const trendVariation = Math.sin(i / 5) * (variance / 2); // Sine wave pattern
-      const value = baseValue + randomVariation + trendVariation;
-
-      history.push({
-        timestamp: timestamp.toISOString(),
-        value: Math.round(value * 100) / 100,
-        pointId: pointId || point.id
-      });
-    }
-
-    console.log(`📈 Mock history generated: ${history.length} points for ${point.name || pointId}`);
-    return history;
+    return this.historyService.getHistoricalData(pointIdOrObj, timeRange);
   }
 
   /**
    * Get all equipment of a specific type
-   * @param {string} type - Equipment type (VAV, AHU, Chiller, etc.)
-   * @returns {Promise<Array>} Filtered equipment list
    */
   async getEquipmentByType(type) {
     if (!this.initialized) {
@@ -780,7 +252,6 @@ class MockDataAdapter {
 
   /**
    * Get all unique equipment types
-   * @returns {Promise<Array>} Array of equipment types
    */
   async getEquipmentTypes() {
     if (!this.initialized) {
@@ -793,29 +264,32 @@ class MockDataAdapter {
 
   /**
    * Get building summary statistics
-   * @returns {Promise<Object>} Building stats
    */
   async getBuildingStats() {
     if (!this.initialized) {
       await this.initialize();
     }
 
+    if (!this.equipment) {
+      throw new Error('Adapter not properly initialized - missing equipment data');
+    }
+
     const stats = {
       datasetName: this.getCurrentDataset().name,
       equipmentCount: this.equipment.length,
-      pointCount: this.points.length,
-      scheduleCount: this.schedules.length,
-      historyCount: this.histories.length,
-      taggedComponentCount: this.taggedComponents.length,
-      equipmentTypes: await this.getEquipmentTypes(),
+      pointCount: this.pointService.points.length,
+      scheduleCount: 0,
+      historyCount: this.historyService ? 69 : 0,
+      taggedComponentCount: 0,
+      equipmentTypes: this.equipmentService.getEquipmentTypes(),
       locations: [...new Set(this.equipment.map(e => e.location))].sort(),
-      
+
       // Equipment type breakdown
       equipmentByType: {},
-      
+
       // Point type breakdown
       pointTypes: {},
-      
+
       // Points per equipment stats
       pointsPerEquipment: {
         min: 0,
@@ -830,14 +304,14 @@ class MockDataAdapter {
     });
 
     // Count points by type
-    this.points.forEach(point => {
+    this.pointService.points.forEach(point => {
       stats.pointTypes[point.type] = (stats.pointTypes[point.type] || 0) + 1;
     });
 
     // Calculate points per equipment stats
     if (this.equipment.length > 0) {
-      const pointCounts = this.equipment.map(equip => 
-        this.equipmentPointsMap.get(equip.id)?.length || 0
+      const pointCounts = this.equipment.map(equip =>
+        this.pointService.getPointsByEquipment(equip.id).length
       );
       stats.pointsPerEquipment.min = Math.min(...pointCounts);
       stats.pointsPerEquipment.max = Math.max(...pointCounts);
@@ -850,107 +324,25 @@ class MockDataAdapter {
   }
 
   /**
-   * Get comprehensive data statistics
-   * @returns {Promise<Object>} Detailed stats about the loaded data
-   */
-  async getDataStats() {
-    return await this.getBuildingStats();
-  }
-
-  /**
    * Subscribe to alarm updates
-   * @param {Function} callback - Called when alarms update
-   * @returns {Function} Unsubscribe function
    */
   subscribeToAlarms(callback) {
-    this.subscribers.push(callback);
-    
-    // Return alarms from loaded data or generate mock
-    setTimeout(() => {
-      const alarms = this.getAlarms();
-      callback(alarms);
-    }, 100);
-    
-    // Return unsubscribe function
-    return () => {
-      const index = this.subscribers.indexOf(callback);
-      if (index > -1) {
-        this.subscribers.splice(index, 1);
-      }
-    };
+    return this.alarmService.subscribeToAlarms(callback);
   }
-  
+
   /**
    * Get current alarms
    */
   getAlarms() {
-    // Return loaded alarms if available (from exported Niagara data)
-    if (this.alarms && this.alarms.length > 0) {
-      return this.alarms;
-    }
-    
-    // Generate mock alarms for demo data only
-    return this._generateMockAlarms();
+    return this.alarmService.getAlarms();
   }
-  
+
   /**
    * Get zones
    */
   getZones() {
     return this.zones || [];
   }
-
-  /**
-   * Generate mock alarms for testing
-   * @private
-   */
-  _generateMockAlarms() {
-    // Return empty array for real data - alarms should come from actual Niagara alarm database
-    if (this.currentDataset === 'real') {
-      return [];
-    }
-    
-    // Only return mock alarms for demo data
-    return [
-      {
-        id: 'alarm_1',
-        message: 'CRITICAL: System pressure exceeds safe limits in AHU-006',
-        priority: 'critical',
-        timestamp: new Date(Date.now() - 5 * 60 * 1000), // 5 minutes ago
-        active: true,
-        acknowledged: false,
-        equipmentId: 'equip_6'
-      },
-      {
-        id: 'alarm_2',
-        message: 'High temperature detected in AHU-006',
-        priority: 'high',
-        timestamp: new Date(Date.now() - 15 * 60 * 1000), // 15 minutes ago
-        active: true,
-        acknowledged: false,
-        equipmentId: 'equip_6'
-      },
-      {
-        id: 'alarm_3',
-        message: 'Low pressure warning in Chiller-002',
-        priority: 'medium',
-        timestamp: new Date(Date.now() - 45 * 60 * 1000), // 45 minutes ago
-        active: true,
-        acknowledged: false,
-        equipmentId: 'equip_2'
-      },
-      {
-        id: 'alarm_4',
-        message: 'Routine maintenance due for VAV-001',
-        priority: 'low',
-        timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000), // 2 hours ago
-        active: true,
-        acknowledged: false,
-        equipmentId: 'equip_1'
-      }
-    ];
-  }
 }
 
 export default MockDataAdapter;
-

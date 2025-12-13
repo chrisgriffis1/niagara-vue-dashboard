@@ -51,9 +51,9 @@
     />
 
     <!-- Equipment Grid -->
-    <EquipmentGrid 
+    <EquipmentGrid
       ref="equipmentGridRef"
-      @point-clicked="handlePointClick" 
+      @point-clicked="handlePointClick"
     />
   </div>
 </template>
@@ -99,12 +99,9 @@ const refreshData = async () => {
 }
 
 const handlePointClick = async (point) => {
-  // Find the equipment for this point
-  const equipment = deviceStore.devices.find(e => {
-    const points = deviceStore.devicePoints[e.id] || []
-    return points.some(p => p.id === point.id)
-  })
-  
+  // Find the equipment for this point using the point's equipmentId
+  const equipment = deviceStore.devices.find(e => e.id === point.equipmentId)
+
   selectedPoint.value = point
   selectedEquipment.value = equipment || null
   selectedAlarm.value = null
