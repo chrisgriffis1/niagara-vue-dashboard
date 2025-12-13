@@ -234,19 +234,46 @@ const onFeedbackSubmitted = (data) => {
 const scrollToTop = () => {
   console.log('🚀 FAB: Scroll to top clicked!')
 
-  // Try multiple scrollable containers
-  const mainContent = document.querySelector('.app-main') || document.querySelector('.building-view') || document.body
+  // Check if we're actually scrolled down
+  const currentScroll = window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0
+  console.log('🚀 FAB: Current scroll position:', currentScroll)
 
-  console.log('🚀 FAB: Container found:', mainContent?.className || mainContent?.tagName, 'scrollHeight:', mainContent?.scrollHeight, 'clientHeight:', mainContent?.clientHeight)
+  if (currentScroll === 0) {
+    console.log('🚀 FAB: Already at top, no scrolling needed')
+    fabMenuOpen.value = false
+    return
+  }
 
-  // Always try window scroll first, as it's more reliable
-  console.log('🚀 FAB: Scrolling window to top')
-  window.scrollTo({ top: 0, behavior: 'smooth' })
+  // Try multiple scroll methods for maximum compatibility
+  try {
+    // Method 1: Modern smooth scroll
+    if ('scrollBehavior' in document.documentElement.style) {
+      console.log('🚀 FAB: Using modern scrollTo')
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    } else {
+      // Method 2: Fallback for older browsers
+      console.log('🚀 FAB: Using legacy scrollTo')
+      window.scrollTo(0, 0)
+    }
+  } catch (error) {
+    // Method 3: Direct scroll for maximum compatibility
+    console.log('🚀 FAB: Using direct scroll')
+    window.scroll(0, 0)
+  }
 
-  // Also try the container if it's scrollable
-  if (mainContent && mainContent.scrollHeight > mainContent.clientHeight) {
-    console.log('🚀 FAB: Also scrolling container to top')
-    mainContent.scrollTo({ top: 0, behavior: 'smooth' })
+  // Also try scrolling any scrollable containers
+  const scrollableElements = [
+    document.querySelector('.app-main'),
+    document.querySelector('.building-view'),
+    document.body,
+    document.documentElement
+  ]
+
+  for (const element of scrollableElements) {
+    if (element && element.scrollTop > 0) {
+      console.log('🚀 FAB: Scrolling element to top:', element.className || element.tagName)
+      element.scrollTop = 0
+    }
   }
 
   fabMenuOpen.value = false
