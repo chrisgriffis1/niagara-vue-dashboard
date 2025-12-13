@@ -144,16 +144,27 @@ class MockDataAdapter {
     }
 
     // Return equipment data from equipment service
-    return this.equipmentService.getEquipment().map(equip => ({
+    const equipment = this.equipmentService.getEquipment().map(equip => ({
       id: equip.id,
       name: equip.name,
       type: equip.type,
       location: equip.location,
       zone: equip.zone,
       ord: equip.ord,
+      isPointDevice: equip.isPointDevice || false,
+      currentValue: equip.currentValue,
       pointCount: this.pointService.getPointsByEquipment(equip.id)?.length || 0,
       status: this._getEquipmentStatus(equip.id)
     }));
+    
+    // Debug: Count point-devices
+    const pointDevices = equipment.filter(e => e.isPointDevice);
+    console.log(`🔍 discoverDevices - ${equipment.length} total, ${pointDevices.length} point-devices`);
+    if (pointDevices.length > 0) {
+      console.log('📍 First 3 point-devices:', pointDevices.slice(0, 3).map(e => `${e.name} (${e.type})`).join(', '));
+    }
+    
+    return equipment;
   }
 
   /**

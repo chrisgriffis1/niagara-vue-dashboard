@@ -188,6 +188,29 @@ class MockDataLoaderService {
       equip.location = 'Unknown';
     }
 
+    // Detect point-devices: equipment that represent single-value items
+    // These should display their value directly without a dropdown
+    const pointDeviceTypes = [
+      'Point', 'Exhaust Fan', 'Water Sensor', 'Pressure Sensor', 
+      'Freezer', 'Fridge', 'Heater'
+    ];
+    
+    // Only mark as point-device if:
+    // 1. It's explicitly a point-device type, OR
+    // 2. It has no sub-points AND has a value to display
+    const hasNoPoints = !equip.points || equip.points.length === 0;
+    const hasValue = equip.value !== undefined && equip.value !== null && equip.value !== '';
+    
+    const isPointDevice = equip.isPointDevice || 
+                          pointDeviceTypes.includes(equip.type) ||
+                          (hasNoPoints && hasValue);
+    
+    if (isPointDevice) {
+      equip.isPointDevice = true;
+      // Store the current value for display
+      equip.currentValue = equip.value;
+    }
+
     return equip;
   }
 
