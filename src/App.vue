@@ -232,12 +232,23 @@ const onFeedbackSubmitted = (data) => {
 }
 
 const scrollToTop = () => {
-  // Scroll main container or window
-  const mainContent = document.querySelector('.app-main') || document.querySelector('.building-view')
-  if (mainContent) {
+  console.log('🚀 FAB: Scroll to top clicked!')
+
+  // Try multiple scrollable containers
+  const mainContent = document.querySelector('.app-main') || document.querySelector('.building-view') || document.body
+
+  console.log('🚀 FAB: Container found:', mainContent?.className || mainContent?.tagName, 'scrollHeight:', mainContent?.scrollHeight, 'clientHeight:', mainContent?.clientHeight)
+
+  if (mainContent && mainContent.scrollHeight > mainContent.clientHeight) {
+    // Container is scrollable, scroll it to top
+    console.log('🚀 FAB: Scrolling container to top')
     mainContent.scrollTo({ top: 0, behavior: 'smooth' })
+  } else {
+    // Fall back to window scroll
+    console.log('🚀 FAB: Scrolling window to top')
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
-  window.scrollTo({ top: 0, behavior: 'smooth' })
+
   fabMenuOpen.value = false
 }
 

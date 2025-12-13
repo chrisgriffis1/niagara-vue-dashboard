@@ -2,11 +2,18 @@
 
 ## Code Quality
 
-### Module Size Limits
-- **Target: < 300 lines per file**
-- **Hard limit: < 800 lines per file**
-- If a module grows beyond 300 lines, consider splitting into smaller focused modules
+### Module Size Limits (CRITICAL)
+- **STRICT RULE: Maximum 300 lines per file**
+- **Exception: Documentation files only**
+- If a module grows beyond 300 lines, **STOP and split immediately**
 - Large adapters should be split into service modules (e.g., HistoryService, SubscriptionService)
+- Vue components must stay under 300 lines - extract composables or sub-components
+
+### Master Plan Compliance (CRITICAL)
+- **ALWAYS follow master-plan.md as the authoritative guide**
+- If master-plan.md conflicts with any other rule, master-plan.md takes precedence
+- AI must read master-plan.md for context before any major changes
+- Never deviate from the established architecture and patterns
 
 ### Component Structure (Vue)
 - Template, Script, Style sections should each be reasonable size
