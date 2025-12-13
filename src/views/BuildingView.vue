@@ -125,23 +125,30 @@ const goBack = () => {
 const handleEquipmentClick = (equipmentId) => {
   console.log('Scrolling to equipment:', equipmentId)
   
-  // Find the equipment card element by ID
-  const element = document.querySelector(`[data-equipment-id="${equipmentId}"]`)
-  
-  if (element) {
-    element.scrollIntoView({ 
-      behavior: 'smooth', 
-      block: 'center' 
-    })
-    
-    // Highlight the equipment card temporarily
-    element.classList.add('highlight-pulse')
-    setTimeout(() => {
-      element.classList.remove('highlight-pulse')
-    }, 2000)
-  } else {
-    console.warn('Equipment card not found:', equipmentId)
+  // First, clear all filters so the equipment is visible
+  if (equipmentGridRef.value) {
+    equipmentGridRef.value.clearFilters()
   }
+  
+  // Wait for filters to clear and DOM to update, then scroll
+  setTimeout(() => {
+    const element = document.querySelector(`[data-equipment-id="${equipmentId}"]`)
+    
+    if (element) {
+      element.scrollIntoView({ 
+        behavior: 'smooth', 
+        block: 'center' 
+      })
+      
+      // Highlight the equipment card temporarily
+      element.classList.add('highlight-pulse')
+      setTimeout(() => {
+        element.classList.remove('highlight-pulse')
+      }, 2000)
+    } else {
+      console.warn('Equipment card not found after clearing filters:', equipmentId)
+    }
+  }, 150) // Short delay to allow filters to clear
 }
 
 // Handle quick actions from dashboard

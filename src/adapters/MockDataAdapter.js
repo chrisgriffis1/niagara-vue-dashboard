@@ -288,6 +288,9 @@ class MockDataAdapter {
     // Extract location from path or name
     const location = this._extractLocation(equip);
     
+    // Get zone - prefer explicit zone property from export
+    const zone = equip.zone || null;
+    
     // ALWAYS infer the type to get customer-friendly names
     const friendlyType = this._inferEquipmentType(equip);
     
@@ -296,6 +299,7 @@ class MockDataAdapter {
       name: equip.name || equip.displayName || equip.navName || `Equipment ${index + 1}`,
       type: friendlyType, // Use inferred friendly type
       location: location,
+      zone: zone, // Include zone from export
       ord: equip.ord || equip.slotPath || equip.path || '',
       tags: equip.tags || '',
       technicalType: equip.type, // Keep original technical type for reference
@@ -593,12 +597,13 @@ class MockDataAdapter {
       await this.initialize();
     }
 
-    // Return enriched equipment data with point counts
+    // Return enriched equipment data with point counts and zone
     return this.equipment.map(equip => ({
       id: equip.id,
       name: equip.name,
       type: equip.type,
       location: equip.location,
+      zone: equip.zone, // Include zone for filtering
       ord: equip.ord,
       pointCount: this.equipmentPointsMap.get(equip.id)?.length || 0,
       status: this._getEquipmentStatus(equip.id)

@@ -1003,9 +1003,28 @@ const handleKeyboardShortcut = (event) => {
   }
 }
 
-/* Search Section */
+/* Search Section - Sticky at top */
 .search-section {
-  margin-bottom: var(--spacing-lg);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background-color: var(--color-bg-primary);
+  padding: var(--spacing-md) 0;
+  margin-bottom: var(--spacing-md);
+  /* Subtle shadow when stuck */
+  transition: box-shadow 0.2s ease;
+}
+
+/* Add shadow when scrolled */
+.search-section::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: -20px;
+  right: -20px;
+  height: 10px;
+  background: linear-gradient(to bottom, rgba(0,0,0,0.05), transparent);
+  pointer-events: none;
 }
 
 .search-box {
