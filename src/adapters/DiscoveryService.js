@@ -228,12 +228,9 @@ class DiscoveryService {
 
   /**
    * Discover all equipment/devices
+   * Note: Should only be called AFTER adapter is initialized to avoid circular calls
    */
   async discoverDevices() {
-    if (!this.adapter.initialized) {
-      await this.adapter.initialize();
-    }
-
     try {
       console.log('🏭 Starting full device discovery...');
 
