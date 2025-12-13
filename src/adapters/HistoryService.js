@@ -329,6 +329,11 @@ class HistoryService {
       const table = await ord.get();
 
       const self = this;
+      // Compute cleanSlotPath here so it's accessible in the closure
+      let cleanSlotPath = slotPath.replace(/^slot:/, '');
+      if (!cleanSlotPath.startsWith('/')) {
+        cleanSlotPath = '/' + cleanSlotPath;
+      }
       
       return new Promise((resolve) => {
         let found = false;
