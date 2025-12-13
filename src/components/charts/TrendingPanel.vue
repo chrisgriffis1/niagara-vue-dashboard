@@ -266,6 +266,10 @@ const chartPoint = computed(() => {
 
 // Initialize with initial point if provided
 onMounted(async () => {
+  console.log('🚀 TrendingPanel: onMounted called')
+  console.log('🚀 TrendingPanel: initialPoint:', props.initialPoint)
+  console.log('🚀 TrendingPanel: initialEquipment:', props.initialEquipment)
+  
   // Initialize adapter
   await deviceStore.initializeAdapter()
   
@@ -274,21 +278,32 @@ onMounted(async () => {
   
   // Add initial point if provided
   if (props.initialPoint && props.initialEquipment) {
+    console.log('✅ TrendingPanel: Adding initial point to selection')
+    
     const colorIndex = selectedPoints.value.length % 10
     const colors = [
       '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6',
       '#ec4899', '#14b8a6', '#f97316', '#6366f1', '#84cc16'
     ]
     
-    selectedPoints.value.push({
+    const pointToAdd = {
       ...props.initialPoint,
       equipmentName: props.initialEquipment.name,
       equipmentId: props.initialEquipment.id,
       color: colors[colorIndex]
-    })
+    }
+    
+    console.log('📍 TrendingPanel: Point being added:', pointToAdd)
+    
+    selectedPoints.value.push(pointToAdd)
+    
+    console.log('📍 TrendingPanel: selectedPoints after push:', selectedPoints.value.length)
     
     // Load data immediately for initial point
+    console.log('⏳ TrendingPanel: Calling loadHistoricalData...')
     await loadHistoricalData()
+  } else {
+    console.log('⚠️ TrendingPanel: No initial point or equipment provided')
   }
   
   // Setup keyboard shortcuts
