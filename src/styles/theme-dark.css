@@ -104,6 +104,7 @@ button.primary:hover {
   border: 1px solid rgba(59, 130, 246, 0.3);
   box-shadow: 0 4px 20px rgba(59, 130, 246, 0.1);
   position: relative;
+  align-self: start; /* Prevents card from stretching to match tallest card in row */
 }
 
 .equipment-card::before {

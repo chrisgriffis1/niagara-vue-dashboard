@@ -182,6 +182,7 @@ const toggleExpand = () => {
   border: 1px solid var(--color-border, #333);
   overflow: hidden;
   transition: all 0.2s ease;
+  align-self: start; /* Prevents card from stretching to match tallest card in row */
 }
 
 .stack-card:hover {
@@ -271,8 +272,8 @@ const toggleExpand = () => {
 
 .stack-devices {
   border-top: 1px solid var(--color-border, #333);
-  max-height: 300px;
-  overflow-y: auto;
+  max-height: 400px; /* Limit height so card doesn't grow too tall */
+  overflow-y: auto; /* Scroll if more than 400px of content */
 }
 
 .device-row {
