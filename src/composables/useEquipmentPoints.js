@@ -73,10 +73,23 @@ export function useEquipmentPoints(equipment) {
   // Get displayed points (limited or all based on showAllPoints)
   const getDisplayedPoints = () => {
     const sorted = sortPointsByPriority(allPoints.value)
+    
+    console.log(`🔍 useEquipmentPoints: Total points: ${sorted.length}`)
+    console.log(`🔍 useEquipmentPoints: Points with alarms: ${sorted.filter(p => p.hasAlarm).length}`)
+    console.log(`🔍 useEquipmentPoints: Points with history: ${sorted.filter(p => p.hasHistory).length}`)
+    console.log(`🔍 useEquipmentPoints: showAllPoints: ${showAllPoints.value}`)
+    console.log(`🔍 useEquipmentPoints: INITIAL_POINT_LIMIT: ${INITIAL_POINT_LIMIT}`)
+    
     if (showAllPoints.value || sorted.length <= INITIAL_POINT_LIMIT) {
+      console.log(`✅ useEquipmentPoints: Returning all ${sorted.length} points`)
       return sorted
     }
-    return sorted.slice(0, INITIAL_POINT_LIMIT)
+    
+    const limited = sorted.slice(0, INITIAL_POINT_LIMIT)
+    console.log(`✅ useEquipmentPoints: Returning limited ${limited.length} of ${sorted.length} points`)
+    console.log(`   First 3 points:`, limited.slice(0, 3).map(p => ({ name: p.name, hasAlarm: p.hasAlarm, hasHistory: p.hasHistory })))
+    
+    return limited
   }
 
   // Methods

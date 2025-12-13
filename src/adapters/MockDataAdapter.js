@@ -214,9 +214,9 @@ class MockDataAdapter {
     const points = this.pointService.getPointsByEquipment(equipmentId);
 
     // Return formatted point data with all fields needed for sparklines
-    return points.map(point => {
-      // Check if this point has an active alarm
-      const hasAlarm = this.alarms.some(alarm => 
+    const formattedPoints = points.map(point => {
+      // Check if this point currently has an ACTIVE alarm
+      const activeAlarm = this.alarms.find(alarm => 
         alarm.active && 
         (alarm.pointId === point.id || alarm.sourceId === point.id)
       );
@@ -234,11 +234,17 @@ class MockDataAdapter {
         displayValue: this.pointService.formatPointValue(point),
         trendable: true, // All points are "trendable" in mock mode
         hasHistory: true, // Enable history for all points in mock mode
-        hasAlarm: hasAlarm, // Flag if point has an active alarm
+        hasAlarm: !!activeAlarm, // Currently has an ACTIVE alarm (used for sorting priority)
+        alarmData: activeAlarm || null, // Full alarm object if in alarm
         historyId: point.historyId || `mock_${point.id}`,
         priority: point.priority || 'normal'
       };
     });
+    
+    console.log(`📊 MockDataAdapter: Returning ${formattedPoints.length} points for equipment ${equipmentId}`);
+    console.log(`   Points with active alarms: ${formattedPoints.filter(p => p.hasAlarm).length}`);
+    
+    return formattedPoints;
   }
 
   /**
